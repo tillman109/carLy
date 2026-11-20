@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Word-by-word highlighting: the current line now sweeps left to right as it is sung instead of
+  lighting up whole. Apple Music lyrics use Apple's own per-word (and per-syllable) timing. Lyrics
+  that are only timed per line (Spotify, LRCLIB, files) get an estimated sweep, with the line's
+  time shared between its words by length. Two new switches under Lyrics: "Highlight Word by
+  Word" and "Estimate Word Timing". Apple Music lyrics cached before this update only get the
+  estimate until their cache entry expires or is cleared (Settings > Maintenance).
+
 ## 1.0.0
 
 First release.

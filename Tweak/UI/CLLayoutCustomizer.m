@@ -185,6 +185,14 @@ static void CLLogViewsAtPoint(UIWindow *window, CGPoint point) {
 }
 
 /// "Looking for lyrics…" / "No lyrics for this song" for a controller status, nil otherwise.
+/// The lyric clock the panels sweep words against (see CLLyricsPanelView.lyricTimeProvider). The
+/// shared controller is a process-wide singleton, so the block captures nothing.
+static CLLyricsPanelTimeProvider CLLyricClockProvider(void) {
+    return ^NSTimeInterval {
+        return [CLLyricsController.sharedController currentLyricTime];
+    };
+}
+
 static NSString *CLLyricsStatusText(CLLyricsControllerStatus status) {
     if (status == CLLyricsControllerStatusLoading) return @"Looking for lyrics…";
     if (status == CLLyricsControllerStatusUnavailable) return @"No lyrics for this song";
@@ -737,6 +745,7 @@ static BOOL sHostColumnHooksInstalled = NO;
         _panelView.translatesAutoresizingMaskIntoConstraints = NO;
         _panelView.delegate = self;
         _panelView.hidden = YES;
+        _panelView.lyricTimeProvider = CLLyricClockProvider();
         // Seed it with what the controller already has. For modes 2 and 4 the panel is born on
         // the first layout pass (the plan is Off while the safe area is empty), after the lyrics
         // may have loaded and after the observer's initial callback may already have fired;
@@ -1115,6 +1124,7 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
         CLLyricsFullScreenView *view = [[CLLyricsFullScreenView alloc] initWithFrame:CGRectZero];
         view.translatesAutoresizingMaskIntoConstraints = NO;
         view.delegate = self;
+        view.panelView.lyricTimeProvider = CLLyricClockProvider();
         CLLyricsController *controller = CLLyricsController.sharedController;
         [view.panelView setLyrics:controller.currentLyrics];
         [view.panelView setCurrentLineIndex:controller.currentLineIndex animated:NO];

@@ -26,9 +26,22 @@ typedef NS_ENUM(NSInteger, CLLyricsKind) {
 - (BOOL)isSameSongAs:(nullable CLTrack *)other;   // title+artist+duration within 2 s
 @end
 
+/// One timed word (or syllable) of a lyric line: when it is sung and which characters of the
+/// line's text it covers. Only lyrics that carry word timing (Apple Music's TTML, word-tagged
+/// LRC) have these; for everything else the UI may estimate them (see CLWordTiming.h).
+@interface CLLyricWord : NSObject
+@property (nonatomic) NSTimeInterval time;      // seconds from track start
+@property (nonatomic) NSTimeInterval endTime;   // >= time
+@property (nonatomic) NSRange range;            // characters inside the owning line's `text`
++ (instancetype)wordWithTime:(NSTimeInterval)time endTime:(NSTimeInterval)endTime range:(NSRange)range;
+@end
+
 @interface CLLyricLine : NSObject
 @property (nonatomic) NSTimeInterval time;   // seconds from track start
 @property (nonatomic, copy) NSString *text;
+/// Per-word timing, in text order, or nil when the source only timed the whole line. Ranges are
+/// valid for `text` as it is when the words are assigned (the setter drops words that do not fit).
+@property (nonatomic, copy, nullable) NSArray<CLLyricWord *> *words;
 + (instancetype)lineWithTime:(NSTimeInterval)time text:(NSString *)text;
 @end
 

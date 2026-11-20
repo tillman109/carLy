@@ -231,6 +231,8 @@ static void CLPrefsDarwinCallback(CFNotificationCenterRef center, void *observer
     resolved[CLPrefKeyLyricsNextAlpha] = @(CLClampDouble(CLPrefsDouble(raw(CLPrefKeyLyricsNextAlpha), 0.45), 0.0, 1.0));
     resolved[CLPrefKeyLyricsAlignment] = @(CLClampInt(CLPrefsInt(raw(CLPrefKeyLyricsAlignment), 0), 0, 2));
     resolved[CLPrefKeyLyricsAnimations] = @(CLPrefsBool(raw(CLPrefKeyLyricsAnimations), YES));
+    resolved[CLPrefKeyLyricsWordHighlight] = @(CLPrefsBool(raw(CLPrefKeyLyricsWordHighlight), YES));
+    resolved[CLPrefKeyLyricsWordEstimate] = @(CLPrefsBool(raw(CLPrefKeyLyricsWordEstimate), YES));
     resolved[CLPrefKeyLyricsShowPlainWhenUnsynced] = @(CLPrefsBool(raw(CLPrefKeyLyricsShowPlainWhenUnsynced), YES));
     resolved[CLPrefKeyLyricsOffsetMs] = @(CLPrefsInt(raw(CLPrefKeyLyricsOffsetMs), 0));
     resolved[CLPrefKeyServiceLyricsOffsetMs] = @(CLPrefsInt(raw(CLPrefKeyServiceLyricsOffsetMs), 0));
@@ -360,6 +362,8 @@ static void CLPrefsDarwinCallback(CFNotificationCenterRef center, void *observer
 - (BOOL)lyricsShowPlainWhenUnsynced { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsShowPlainWhenUnsynced] boolValue]; }
 - (NSInteger)lyricsOffsetMs { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsOffsetMs] integerValue]; }
 - (NSInteger)serviceLyricsOffsetMs { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyServiceLyricsOffsetMs] integerValue]; }
+- (BOOL)lyricsWordHighlight { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsWordHighlight] boolValue]; }
+- (BOOL)lyricsWordEstimate { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsWordEstimate] boolValue]; }
 - (BOOL)lyricsShowNoteOnGap { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsShowNoteOnGap] boolValue]; }
 - (NSInteger)lyricsBackground { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsBackground] integerValue]; }
 - (NSString *)lyricsBackgroundColorHex { return (NSString *)[self valueForResolvedKey:CLPrefKeyLyricsBackgroundColor] ?: @"#000000"; }

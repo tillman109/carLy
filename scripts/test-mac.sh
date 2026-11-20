@@ -75,7 +75,7 @@ $CC $CFLAGS -I"$THEOS/vendor/include" -o "$OUT/uitest" \
     tests/ui/CLLayoutCustomizerHarness.m \
     Tweak/UI/*.m \
     Tweak/Util/CLLog.m Tweak/Util/CLColor.m Tweak/Util/CLPrefs.m Tweak/Util/CLRuntime.m \
-    Tweak/Lyrics/CLLyricsTypes.m Tweak/Lyrics/CLLyricsCache.m Tweak/Lyrics/CLProviderChain.m \
+    Tweak/Lyrics/CLLyricsTypes.m Tweak/Lyrics/CLWordTiming.m Tweak/Lyrics/CLLyricsCache.m Tweak/Lyrics/CLProviderChain.m \
     Tweak/Core/*.m Tweak/Sync/*.m \
     -framework UIKit -framework CoreGraphics
 

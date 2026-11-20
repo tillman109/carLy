@@ -52,6 +52,8 @@
 // | lyricsNextAlpha               | float           | 0.45                                          | Opacity applied on top of lyricsNextColor for dimming. |
 // | lyricsAlignment               | int             | 0                                             | 0 left, 1 center, 2 right. |
 // | lyricsAnimations              | bool            | YES                                           | Animate line transitions (fade/slide) vs. hard cut. |
+// | lyricsWordHighlight           | bool            | YES                                           | Highlight the current line word by word as it is sung (a left-to-right sweep) instead of lighting the whole line. Uses real word timing where the source has it (Apple Music), see lyricsWordEstimate for the rest. |
+// | lyricsWordEstimate            | bool            | YES                                           | For lyrics timed per line only (Spotify, LRCLIB, files), estimate when each word is sung by sharing the line's time between its words. Off: those lines highlight whole. Ignored when lyricsWordHighlight is off. |
 // | lyricsShowPlainWhenUnsynced   | bool            | YES                                           | Show plain (unsynced) lyrics as static text when no LRC is available. |
 // | lyricsOffsetMs                | int             | 0                                             | Manual sync offset in milliseconds, added to the computed elapsed time — so a positive value makes lines appear *earlier* and a negative one delays them (the LRC `[offset:]` convention, see CLLyricsSyncEngine.h and Lyrics.plist's footer). |
 // | serviceLyricsOffsetMs         | int             | 0                                             | The same offset for lyrics timed by the playing app's own service: Spotify's ("spotify", "spotify-cache") and Apple Music's ("apple-music"). lyricsOffsetMs then only moves LRCLIB, custom and embedded lyrics (0.9.0). |
@@ -101,6 +103,8 @@
 #define CLPrefKeyLyricsNextAlpha             (@"lyricsNextAlpha")
 #define CLPrefKeyLyricsAlignment             (@"lyricsAlignment")
 #define CLPrefKeyLyricsAnimations            (@"lyricsAnimations")
+#define CLPrefKeyLyricsWordHighlight         (@"lyricsWordHighlight")
+#define CLPrefKeyLyricsWordEstimate          (@"lyricsWordEstimate")
 #define CLPrefKeyLyricsShowPlainWhenUnsynced (@"lyricsShowPlainWhenUnsynced")
 #define CLPrefKeyLyricsOffsetMs              (@"lyricsOffsetMs")
 #define CLPrefKeyServiceLyricsOffsetMs       (@"serviceLyricsOffsetMs")

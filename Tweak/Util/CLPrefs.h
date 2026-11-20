@@ -76,6 +76,8 @@ NSString *CLPrefsActiveDomain(void);
 @property (nonatomic, readonly) double lyricsNextAlpha;
 @property (nonatomic, readonly) NSInteger lyricsAlignment;          // 0 left, 1 center, 2 right
 @property (nonatomic, readonly) BOOL lyricsAnimations;
+@property (nonatomic, readonly) BOOL lyricsWordHighlight;           // sweep the current line word by word
+@property (nonatomic, readonly) BOOL lyricsWordEstimate;            // ...also for lyrics timed per line only
 @property (nonatomic, readonly) BOOL lyricsShowPlainWhenUnsynced;
 @property (nonatomic, readonly) NSInteger lyricsOffsetMs;            // LRCLIB, custom, embedded
 @property (nonatomic, readonly) NSInteger serviceLyricsOffsetMs;     // Spotify's and Apple Music's own lyrics

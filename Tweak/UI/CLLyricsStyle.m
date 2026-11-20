@@ -106,6 +106,8 @@ static UIColor *CLColorWithScaledAlpha(UIColor *color, CGFloat alpha) {
     }
 
     style->_animations = prefs.lyricsAnimations;
+    style->_wordHighlight = prefs.lyricsWordHighlight;
+    style->_wordEstimate = prefs.lyricsWordEstimate;
     style->_showNoteOnGap = prefs.lyricsShowNoteOnGap;
     style->_showPlainWhenUnsynced = prefs.lyricsShowPlainWhenUnsynced;
     style->_backgroundStyle = CLClampInteger(prefs.lyricsBackground, 0, 2);
@@ -154,6 +156,8 @@ static UIColor *CLColorWithScaledAlpha(UIColor *color, CGFloat alpha) {
     if (fabs(_fontWeight - other->_fontWeight) > 0.001) return NO;
     if (_alignment != other->_alignment) return NO;
     if (_animations != other->_animations) return NO;
+    if (_wordHighlight != other->_wordHighlight) return NO;
+    if (_wordEstimate != other->_wordEstimate) return NO;
     if (_showNoteOnGap != other->_showNoteOnGap) return NO;
     if (_showPlainWhenUnsynced != other->_showPlainWhenUnsynced) return NO;
     if (_backgroundStyle != other->_backgroundStyle) return NO;

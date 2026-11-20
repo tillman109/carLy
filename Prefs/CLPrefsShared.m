@@ -112,7 +112,8 @@
             CLPrefKeyLyricsMode, CLPrefKeyLyricsFontFamily,
             CLPrefKeyLyricsFontSize, CLPrefKeyLyricsFontWeight, CLPrefKeyLyricsCurrentColor,
             CLPrefKeyLyricsNextColor, CLPrefKeyLyricsNextAlpha, CLPrefKeyLyricsAlignment,
-            CLPrefKeyLyricsAnimations, CLPrefKeyLyricsShowPlainWhenUnsynced,
+            CLPrefKeyLyricsAnimations, CLPrefKeyLyricsWordHighlight, CLPrefKeyLyricsWordEstimate,
+            CLPrefKeyLyricsShowPlainWhenUnsynced,
             CLPrefKeyLyricsOffsetMs, CLPrefKeyServiceLyricsOffsetMs, CLPrefKeyLyricsShowNoteOnGap, CLPrefKeyLyricsBackground,
             CLPrefKeyLyricsBackgroundColor, CLPrefKeyLyricsBackgroundAlpha,
             // Layout

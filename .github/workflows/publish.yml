@@ -41,6 +41,9 @@ jobs:
   # A job that calls a reusable workflow is only `uses:`/`with:`/`secrets:` -- no steps of its
   # own -- so everything below is inputs.
   publish:
+    # Only the upstream repository has the signing key and the Pages site this publishes to; on a
+    # fork it would fail on every push to main.
+    if: github.repository == 'realAndi/carLy'
     uses: realAndi/ios-port-ci/.github/workflows/publish.yml@v1
     with:
       package: com.andi.carly

@@ -44,6 +44,10 @@ typedef void (^CLLyricsSyncLineChangedBlock)(NSInteger lineIndex);
 - (NSInteger)lineIndexForElapsed:(NSTimeInterval)elapsed;
 /// 0...1 through the current line, for progress animations. 0 when there is no current line.
 - (NSTimeInterval)progressWithinCurrentLine;
+/// The clock the lines are compared against right now: playback position (extrapolated from the
+/// last state) plus `offset`. NAN when there is no playback state. Word highlighting reads this
+/// every frame-ish; unlike the line index it moves continuously.
+- (NSTimeInterval)currentLyricTime;
 /// Playback position to seek to so that `index` becomes the current line (offset compensated).
 /// Returns -1 when the index is out of range.
 - (NSTimeInterval)playbackTimeForLineAtIndex:(NSInteger)index;

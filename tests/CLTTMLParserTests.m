@@ -5,6 +5,7 @@
 #import "CLTTMLParserTests.h"
 #import "CLTestCase.h"
 #import "Lyrics/CLTTMLParser.h"
+#import "Lyrics/CLWordTiming.h"
 #import <math.h>
 
 static NSString *const kCLTTMLTestNamespaces =
@@ -413,6 +414,156 @@ static void CLTestTTMLRefusesEntities(void) {
     CL_ASSERT_NIL(CLTTMLTestParse(external));
 }
 
+// MARK: - Word timing
+
+static NSString *CLTTMLTestWordText(CLLyricLine *line, NSUInteger index) {
+    if (index >= line.words.count) return nil;
+    return [line.text substringWithRange:line.words[index].range];
+}
+
+static void CLTestTTMLWordTiming(void) {
+    CLLyrics *lyrics = CLTTMLTestParse(CLTTMLTestAppleWordSample());
+    CL_ASSERT_NOT_NIL(lyrics);
+
+    CLLyricLine *first = CLTTMLTestLine(lyrics, 0);
+    CL_ASSERT_EQ(first.words.count, (NSUInteger)4);
+    CL_ASSERT_EQ(CLTTMLTestWordText(first, 0), @"Break");
+    CL_ASSERT_EQ(CLTTMLTestWordText(first, 1), @"down");
+    CL_ASSERT_EQ(CLTTMLTestWordText(first, 3), @"walls");
+    CL_ASSERT_NEAR(first.words[1].time, 10.290, 0.0005);
+    CL_ASSERT_NEAR(first.words[1].endTime, 10.512, 0.0005);
+    CL_ASSERT_NEAR(first.words[3].endTime, 12.244, 0.0005);
+
+    // Syllables stay separate (and touch); the background group's words are words too, and the
+    // group span itself is not one.
+    CLLyricLine *second = CLTTMLTestLine(lyrics, 1);
+    CL_ASSERT_EQ(second.words.count, (NSUInteger)8);
+    CL_ASSERT_EQ(CLTTMLTestWordText(second, 0), @"It's");
+    CL_ASSERT_EQ(CLTTMLTestWordText(second, 2), @"Won");
+    CL_ASSERT_EQ(CLTTMLTestWordText(second, 3), @"der");
+    CL_ASSERT_EQ(CLTTMLTestWordText(second, 4), @"ful");
+    CL_ASSERT_EQ(second.words[2].range.location + second.words[2].range.length, second.words[3].range.location);
+    CL_ASSERT_EQ(CLTTMLTestWordText(second, 6), @"(ooh");
+    CL_ASSERT_EQ(CLTTMLTestWordText(second, 7), @"yeah)");
+    CL_ASSERT_NEAR(second.words[7].endTime, 17.5, 0.0005);
+
+    // The blank gap line has none.
+    CL_ASSERT_NIL(CLTTMLTestLine(lyrics, 2).words);
+    // A word-timed line's words are in order and never overlap in text.
+    for (CLLyricLine *line in lyrics.lines) {
+        NSUInteger cursor = 0;
+        for (CLLyricWord *word in line.words) {
+            CL_ASSERT_TRUE(word.range.location >= cursor);
+            CL_ASSERT_TRUE(word.endTime >= word.time);
+            cursor = NSMaxRange(word.range);
+        }
+    }
+}
+
+static void CLTestTTMLWordTimingAbsent(void) {
+    // itunes:timing="Line": whole <p>s only, so no words (the UI may estimate them).
+    CLLyrics *lyrics = CLTTMLTestParse(CLTTMLTestDocument(@"Line",
+        @"<div><p begin='1.0' end='3.0'>Just a line</p></div>"));
+    CL_ASSERT_EQ(lyrics.lines.count, (NSUInteger)1);
+    CL_ASSERT_NIL(CLTTMLTestLine(lyrics, 0).words);
+
+    // Only timed spans are words; untimed text around them is just text.
+    CLLyrics *untimed = CLTTMLTestParse(CLTTMLTestDocument(@"Word",
+        @"<div><p begin='1.0' end='3.0'><span begin='1.0' end='2.0'>Hello</span> world</p></div>"));
+    CLLyricLine *line = CLTTMLTestLine(untimed, 0);
+    CL_ASSERT_EQ(line.text, @"Hello world");
+    CL_ASSERT_EQ(line.words.count, (NSUInteger)1);   // only the timed span is a word
+    CL_ASSERT_EQ(CLTTMLTestWordText(line, 0), @"Hello");
+}
+
+static void CLTestLyricWordsValidation(void) {
+    CLLyricLine *line = [CLLyricLine lineWithTime:1.0 text:@"abc def"];
+    line.words = @[[CLLyricWord wordWithTime:1.0 endTime:2.0 range:NSMakeRange(0, 3)],
+                   [CLLyricWord wordWithTime:2.0 endTime:3.0 range:NSMakeRange(4, 99)],   // runs past the text
+                   [CLLyricWord wordWithTime:3.0 endTime:3.5 range:NSMakeRange(2, 0)]];   // empty
+    CL_ASSERT_EQ(line.words.count, (NSUInteger)1);
+    // Changing the text so the words no longer fit drops them.
+    line.text = @"a";
+    CL_ASSERT_NIL(line.words);
+}
+
+static void CLTestWordTimingCacheRoundTrip(void) {
+    CLLyrics *lyrics = CLTTMLTestParse(CLTTMLTestAppleWordSample());
+    NSData *json = [NSJSONSerialization dataWithJSONObject:[lyrics dictionaryRepresentation] options:0 error:NULL];
+    CL_ASSERT_NOT_NIL(json);
+    id object = json ? [NSJSONSerialization JSONObjectWithData:json options:0 error:NULL] : nil;
+    CLLyrics *back = [CLLyrics lyricsWithDictionary:object];
+    CL_ASSERT_NOT_NIL(back);
+    CL_ASSERT_EQ(back.lines.count, lyrics.lines.count);
+    for (NSUInteger i = 0; i < lyrics.lines.count && i < back.lines.count; i++) {
+        CL_ASSERT_EQ(back.lines[i].words, lyrics.lines[i].words);
+    }
+
+    // A cache entry written before word timing existed still loads, as plain line-timed lyrics.
+    CLLyrics *old = [CLLyrics lyricsWithDictionary:@{ @"kind": @(CLLyricsKindSynced), @"source": @"apple-music",
+        @"fetchedAt": @0, @"lines": @[ @{ @"t": @1.0, @"text": @"hi there" } ] }];
+    CL_ASSERT_EQ(old.lines.count, (NSUInteger)1);
+    CL_ASSERT_NIL(old.lines[0].words);
+
+    // Garbage word entries are ignored, not fatal.
+    CLLyrics *garbage = [CLLyrics lyricsWithDictionary:@{ @"kind": @(CLLyricsKindSynced), @"source": @"x",
+        @"fetchedAt": @0, @"lines": @[ @{ @"t": @1.0, @"text": @"hi there",
+            @"w": @[ @"nope", @[ @1, @2 ], @[ @"a", @"b", @"c", @"d" ], @[ @1.0, @2.0, @0, @2 ] ] } ] }];
+    CL_ASSERT_EQ(garbage.lines[0].words.count, (NSUInteger)1);
+}
+
+static void CLTestWordEstimation(void) {
+    NSString *text = @"Hello big world";
+    NSArray<CLLyricWord *> *words = CLEstimatedWords(text, 10.0, 3.0);
+    CL_ASSERT_EQ(words.count, (NSUInteger)3);
+    CL_ASSERT_EQ([text substringWithRange:words[1].range], @"big");
+    // One continuous sweep: each word starts where the last ended, and the line ends a little
+    // before the next one starts.
+    CL_ASSERT_NEAR(words[0].time, 10.0, 1e-6);
+    CL_ASSERT_NEAR(words[0].endTime, words[1].time, 1e-6);
+    CL_ASSERT_NEAR(words[1].endTime, words[2].time, 1e-6);
+    CL_ASSERT_NEAR(words[2].endTime, 10.0 + 3.0 * 0.92, 1e-6);
+    // Longer words get longer.
+    CL_ASSERT_TRUE((words[0].endTime - words[0].time) > (words[1].endTime - words[1].time));
+
+    // A long gap holds a pause: the words are packed into a plausible singing time.
+    NSArray<CLLyricWord *> *slow = CLEstimatedWords(text, 10.0, 30.0);
+    CL_ASSERT_TRUE(slow.lastObject.endTime < 10.0 + 6.5);
+    CL_ASSERT_TRUE(slow.lastObject.endTime > 10.0 + 0.9);
+
+    CL_ASSERT_NIL(CLEstimatedWords(@"", 1.0, 2.0));
+    CL_ASSERT_NIL(CLEstimatedWords(@"   ", 1.0, 2.0));
+    CL_ASSERT_NIL(CLEstimatedWords(@"hi", 1.0, 0.0));
+    CL_ASSERT_NIL(CLEstimatedWords(@"hi", NAN, 2.0));
+}
+
+static void CLTestWordsForLine(void) {
+    CLLyricLine *plain = [CLLyricLine lineWithTime:5.0 text:@"la la la"];
+    CL_ASSERT_NIL(CLWordsForLine(@"la la la", plain, 9.0, NO));
+    CL_ASSERT_EQ(CLWordsForLine(@"la la la", plain, 9.0, YES).count, (NSUInteger)3);
+    // The last line has no successor: five seconds are assumed.
+    NSArray<CLLyricWord *> *last = CLWordsForLine(@"la la la", plain, NAN, YES);
+    CL_ASSERT_NEAR(last.lastObject.endTime, 5.0 + 5.0 * 0.92, 1e-6);
+
+    // Real word timing wins over an estimate, and is used even with estimating off.
+    CLLyricLine *timed = [CLLyricLine lineWithTime:5.0 text:@"hi there"];
+    timed.words = @[[CLLyricWord wordWithTime:5.0 endTime:5.5 range:NSMakeRange(0, 2)],
+                    [CLLyricWord wordWithTime:5.5 endTime:6.0 range:NSMakeRange(3, 5)]];
+    CL_ASSERT_EQ(CLWordsForLine(@"hi there", timed, 9.0, NO).count, (NSUInteger)2);
+    CL_ASSERT_NEAR(CLWordsForLine(@"hi there", timed, 9.0, YES)[0].endTime, 5.5, 1e-6);
+
+    // Drawn text that is the line's text trimmed: the ranges move with it.
+    CLLyricLine *padded = [CLLyricLine lineWithTime:1.0 text:@"  hi there"];
+    padded.words = @[[CLLyricWord wordWithTime:1.0 endTime:1.5 range:NSMakeRange(2, 2)],
+                     [CLLyricWord wordWithTime:1.5 endTime:2.0 range:NSMakeRange(5, 5)]];
+    NSArray<CLLyricWord *> *rebased = CLWordsForLine(@"hi there", padded, 9.0, NO);
+    CL_ASSERT_EQ(rebased.count, (NSUInteger)2);
+    CL_ASSERT_EQ(rebased[0].range.location, (NSUInteger)0);
+    CL_ASSERT_EQ([@"hi there" substringWithRange:rebased[1].range], @"there");
+
+    CL_ASSERT_NIL(CLWordsForLine(@"", plain, 9.0, YES));
+}
+
 void CLRunTTMLParserTests(void) {
     CLTestBeginSuite("CLTTMLParser");
     CLTestTTMLClockValues();
@@ -431,4 +582,10 @@ void CLRunTTMLParserTests(void) {
     CLTestTTMLNothingTimed();
     CLTestTTMLRejectsGarbage();
     CLTestTTMLRefusesEntities();
+    CLTestTTMLWordTiming();
+    CLTestTTMLWordTimingAbsent();
+    CLTestLyricWordsValidation();
+    CLTestWordTimingCacheRoundTrip();
+    CLTestWordEstimation();
+    CLTestWordsForLine();
 }

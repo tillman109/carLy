@@ -149,6 +149,10 @@ static BOOL CLSameTitleAndArtist(CLTrack *a, CLTrack *b) {
     return [_syncEngine progressWithinCurrentLine];
 }
 
+- (NSTimeInterval)currentLyricTime {
+    return [_syncEngine currentLyricTime];
+}
+
 - (BOOL)isStarted {
     return _started;
 }

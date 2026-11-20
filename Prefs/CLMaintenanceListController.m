@@ -84,6 +84,8 @@ static NSString *const kCLLyricsCacheDirectory = @"/var/mobile/Library/Caches/ca
         mark(CLPrefKeyLyricsNextAlpha, CLPrefValueTypeNumber);
         mark(CLPrefKeyLyricsAlignment, CLPrefValueTypeNumber);
         mark(CLPrefKeyLyricsAnimations, CLPrefValueTypeBool);
+        mark(CLPrefKeyLyricsWordHighlight, CLPrefValueTypeBool);
+        mark(CLPrefKeyLyricsWordEstimate, CLPrefValueTypeBool);
         mark(CLPrefKeyLyricsShowPlainWhenUnsynced, CLPrefValueTypeBool);
         mark(CLPrefKeyLyricsOffsetMs, CLPrefValueTypeNumber);
         mark(CLPrefKeyServiceLyricsOffsetMs, CLPrefValueTypeNumber);

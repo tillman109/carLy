@@ -20,6 +20,10 @@
 // <p>'s): TTML's parent-relative timing and `dur` are not applied, <body> and <div> times are
 // ignored. A <p> without a usable `begin` takes the earliest `begin` among its spans, one without a
 // usable `end` the latest span `end`.
+// Word timing: a <span> with its own `begin` and `end` that contains no timed <span> of its own is
+// a word (or a syllable, when Apple splits one). Each becomes a CLLyricWord whose range is found by
+// searching the line's collapsed text in order; if any of a line's words cannot be found there, the
+// line keeps no word timing at all (a half-matched line would highlight the wrong text).
 // Two refinements of the header's rules, both invisible on ordinary single-voice lyrics:
 //   * the instrumental blank line goes at the latest `end` of every line so far, not only the
 //     previous line's: in a duet a long line can still be running after a shorter, later-starting
@@ -45,6 +49,20 @@ static NSString *const kCLTTMLText = @"text";
 static NSString *const kCLTTMLBegin = @"begin";     // NSNumber, NAN when the <p> has no usable time
 static NSString *const kCLTTMLEnd = @"end";         // NSNumber, NAN when unknown
 static NSString *const kCLTTMLStanza = @"stanza";   // NSNumber, equal for <p>s in the same <div>
+static NSString *const kCLTTMLWords = @"words";     // NSArray<NSDictionary *> (text/begin/end), only when the <p> had timed spans
+
+/// Spans nested deeper than this are still read for line times, but never become words.
+enum { kCLTTMLMaxSpanDepth = 8 };
+/// A <p> with more timed spans than this keeps its line timing and drops word timing.
+static const NSUInteger kCLTTMLMaxWordsPerLine = 512;
+
+typedef struct {
+    NSUInteger depth;          // element depth of the open <span>
+    NSUInteger textStart;      // length of the paragraph text when it opened
+    NSTimeInterval begin;      // NAN when missing
+    NSTimeInterval end;
+    BOOL hasTimedChild;        // a timed <span> opened inside it: it is a group, not a word
+} CLTTMLOpenSpan;
 
 #pragma mark - Helpers
 
@@ -182,6 +200,10 @@ static NSData *CLTTMLDocumentData(NSString *ttml) {
     NSTimeInterval _end;
     NSTimeInterval _spanBegin;     // earliest span begin / latest span end inside it, NAN if none
     NSTimeInterval _spanEnd;
+    CLTTMLOpenSpan _openSpans[kCLTTMLMaxSpanDepth];   // the open <span>s of the <p>, outermost first
+    NSUInteger _openSpanCount;
+    NSMutableArray<NSDictionary *> *_words;           // the open <p>'s timed leaf spans
+    BOOL _wordsOverflowed;
 }
 
 - (instancetype)init {
@@ -189,6 +211,7 @@ static NSData *CLTTMLDocumentData(NSString *ttml) {
     if (self) {
         _paragraphs = [NSMutableArray array];
         _text = [NSMutableString string];
+        _words = [NSMutableArray array];
     }
     return self;
 }
@@ -245,6 +268,7 @@ static NSData *CLTTMLDocumentData(NSString *ttml) {
         if ([CLTTMLLocalName(elementName) isEqualToString:@"div"]) _stanza++;
         return;
     }
+    if (_openSpanCount > 0 && _openSpans[_openSpanCount - 1].depth == depth) [self cl_closeSpan];
     if (depth == _backgroundDepth) {
         _backgroundDepth = 0;
         [self cl_appendSeparator];
@@ -278,6 +302,9 @@ static NSData *CLTTMLDocumentData(NSString *ttml) {
     _end = [CLTTMLParser timeFromClockValue:CLTTMLAttribute(attributes, @"end")];
     _spanBegin = NAN;
     _spanEnd = NAN;
+    _openSpanCount = 0;
+    _wordsOverflowed = NO;
+    [_words removeAllObjects];
 }
 
 - (void)cl_openSpanWithAttributes:(NSDictionary *)attributes {
@@ -286,9 +313,31 @@ static NSData *CLTTMLDocumentData(NSString *ttml) {
     NSTimeInterval end = [CLTTMLParser timeFromClockValue:CLTTMLAttribute(attributes, @"end")];
     if (!isnan(end)) _spanEnd = isnan(_spanEnd) ? end : fmax(_spanEnd, end);
 
+    // Track it as a possible word. A timed span makes its enclosing span a group.
+    if (!isnan(begin) && _openSpanCount > 0) _openSpans[_openSpanCount - 1].hasTimedChild = YES;
+    if (_openSpanCount < kCLTTMLMaxSpanDepth) {
+        _openSpans[_openSpanCount++] = (CLTTMLOpenSpan){
+            .depth = _depth, .textStart = _text.length, .begin = begin, .end = end, .hasTimedChild = NO,
+        };
+    }
+
     if (_backgroundDepth || !CLTTMLIsBackgroundRole(CLTTMLAttribute(attributes, @"role"))) return;
     _backgroundDepth = _depth;
     [self cl_appendSeparator];
+}
+
+/// Pops the innermost open <span>; a timed one with no timed span inside it is a word.
+- (void)cl_closeSpan {
+    CLTTMLOpenSpan span = _openSpans[--_openSpanCount];
+    if (span.hasTimedChild || isnan(span.begin) || isnan(span.end) || span.end < span.begin) return;
+    if (span.textStart > _text.length) return;
+    NSString *word = CLTTMLCollapseWhitespace([_text substringFromIndex:span.textStart]);
+    if (word.length == 0) return;
+    if (_words.count >= kCLTTMLMaxWordsPerLine) {
+        _wordsOverflowed = YES;
+        return;
+    }
+    [_words addObject:@{ kCLTTMLText: word, kCLTTMLBegin: @(span.begin), kCLTTMLEnd: @(span.end) }];
 }
 
 /// A space, unless the text is still empty or already ends in whitespace.
@@ -309,10 +358,14 @@ static NSData *CLTTMLDocumentData(NSString *ttml) {
 
     NSTimeInterval begin = isnan(_begin) ? _spanBegin : _begin;
     NSTimeInterval end = isnan(_end) ? _spanEnd : _end;
-    [_paragraphs addObject:@{ kCLTTMLText: text,
-                              kCLTTMLBegin: @(begin),
-                              kCLTTMLEnd: @(end),
-                              kCLTTMLStanza: @(_stanza) }];
+    NSMutableDictionary *record = [@{ kCLTTMLText: text,
+                                      kCLTTMLBegin: @(begin),
+                                      kCLTTMLEnd: @(end),
+                                      kCLTTMLStanza: @(_stanza) } mutableCopy];
+    if (_words.count > 0 && !_wordsOverflowed) record[kCLTTMLWords] = [_words copy];
+    [_paragraphs addObject:record];
+    [_words removeAllObjects];
+    _openSpanCount = 0;
 }
 
 @end
@@ -329,6 +382,26 @@ static NSString *CLTTMLPlainText(NSArray<NSDictionary *> *paragraphs) {
         [rows addObject:paragraph[kCLTTMLText]];
     }
     return [rows componentsJoinedByString:@"\n"];
+}
+
+/// Finds each timed span's text inside the line's collapsed text, in order. Returns nil unless every
+/// span is found, so a line never ends up with word timing that points at the wrong characters.
+static NSArray<CLLyricWord *> *CLTTMLWordsForLine(NSString *text, NSArray<NSDictionary *> *spans) {
+    if (text.length == 0 || spans.count == 0) return nil;
+    NSMutableArray<CLLyricWord *> *words = [NSMutableArray arrayWithCapacity:spans.count];
+    NSUInteger cursor = 0;
+    for (NSDictionary *span in spans) {
+        NSString *spanText = span[kCLTTMLText];
+        if (spanText.length == 0 || cursor >= text.length) return nil;
+        NSRange found = [text rangeOfString:spanText options:NSLiteralSearch
+                                      range:NSMakeRange(cursor, text.length - cursor)];
+        if (found.location == NSNotFound) return nil;
+        [words addObject:[CLLyricWord wordWithTime:[span[kCLTTMLBegin] doubleValue]
+                                           endTime:[span[kCLTTMLEnd] doubleValue]
+                                             range:found]];
+        cursor = NSMaxRange(found);
+    }
+    return words;
 }
 
 /// Timed <p>s sorted by begin (stable), with an empty line in every long enough silence.
@@ -351,7 +424,10 @@ static NSArray<CLLyricLine *> *CLTTMLSyncedLines(NSArray<NSDictionary *> *paragr
         NSDictionary *paragraph = timed[i];
         NSTimeInterval begin = [paragraph[kCLTTMLBegin] doubleValue];
         NSTimeInterval end = [paragraph[kCLTTMLEnd] doubleValue];
-        [lines addObject:[CLLyricLine lineWithTime:begin text:paragraph[kCLTTMLText]]];
+        CLLyricLine *line = [CLLyricLine lineWithTime:begin text:paragraph[kCLTTMLText]];
+        NSArray<NSDictionary *> *spans = paragraph[kCLTTMLWords];
+        if (spans) line.words = CLTTMLWordsForLine(line.text, spans);
+        [lines addObject:line];
 
         if (isnan(end) || end < begin) continue;   // unknown (or nonsense) end: no break after it
         latestEnd = isnan(latestEnd) ? end : fmax(latestEnd, end);

@@ -22,9 +22,17 @@ NS_ASSUME_NONNULL_BEGIN
 /// Seconds of auto-scroll silence after the user lets go of the list.
 extern const NSTimeInterval CLLyricsPanelAutoScrollPause;
 
+/// The lyric clock: the playback position in the same time base as the lines' `time` (sync offset
+/// already applied), or NAN when unknown.
+typedef NSTimeInterval (^CLLyricsPanelTimeProvider)(void);
+
 @interface CLLyricsPanelView : UIView
 
 @property (nonatomic, weak, nullable) id<CLLyricsPanelViewDelegate> delegate;
+/// Where word-by-word highlighting reads the playback position from. While the current line has
+/// word timing the panel polls this about 30 times a second (and only while it is in a window);
+/// with no provider, or NAN from it, the current line is highlighted whole, as before.
+@property (nonatomic, copy, nullable) CLLyricsPanelTimeProvider lyricTimeProvider;
 
 @property (nonatomic, readonly, nullable) CLLyrics *lyrics;
 @property (nonatomic, readonly) NSInteger currentLineIndex;

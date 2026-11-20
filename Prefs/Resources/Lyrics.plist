@@ -202,6 +202,24 @@
 		</dict>
 		<dict>
 			<key>cell</key><string>PSSwitchCell</string>
+			<key>id</key><string>lyricsWordHighlight</string>
+			<key>label</key><string>Highlight Word by Word</string>
+			<key>key</key><string>lyricsWordHighlight</string>
+			<key>defaults</key><string>com.andi.carly</string>
+			<key>default</key><true/>
+			<key>PostNotification</key><string>com.andi.carly/prefsChanged</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>id</key><string>lyricsWordEstimate</string>
+			<key>label</key><string>Estimate Word Timing</string>
+			<key>key</key><string>lyricsWordEstimate</string>
+			<key>defaults</key><string>com.andi.carly</string>
+			<key>default</key><true/>
+			<key>PostNotification</key><string>com.andi.carly/prefsChanged</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
 			<key>id</key><string>lyricsShowPlainWhenUnsynced</string>
 			<key>label</key><string>Show Unsynced Lyrics</string>
 			<key>key</key><string>lyricsShowPlainWhenUnsynced</string>

@@ -184,6 +184,11 @@ static NSTimeInterval CLClamp(NSTimeInterval value, NSTimeInterval low, NSTimeIn
     return CLClamp(progress, 0.0, 1.0);
 }
 
+- (NSTimeInterval)currentLyricTime {
+    if (!_playbackState) return NAN;
+    return [self effectiveElapsed];
+}
+
 - (NSTimeInterval)playbackTimeForLineAtIndex:(NSInteger)index {
     NSArray<CLLyricLine *> *lines = _lines;
     if (index < 0 || index >= (NSInteger)lines.count) return -1;

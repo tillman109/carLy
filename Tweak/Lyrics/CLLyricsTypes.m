@@ -127,6 +127,47 @@ static NSString *CLJSONStringOrNil(id value) {
 
 @end
 
+#pragma mark - CLLyricWord
+
+@implementation CLLyricWord
+
++ (instancetype)wordWithTime:(NSTimeInterval)time endTime:(NSTimeInterval)endTime range:(NSRange)range {
+    CLLyricWord *word = [[self alloc] init];
+    word.time = (isfinite(time) && time > 0) ? time : 0;
+    word.endTime = (isfinite(endTime) && endTime > word.time) ? endTime : word.time;
+    word.range = range;
+    return word;
+}
+
+- (BOOL)isEqual:(id)object {
+    if (object == self) return YES;
+    if (![object isKindOfClass:[CLLyricWord class]]) return NO;
+    CLLyricWord *other = (CLLyricWord *)object;
+    return fabs(other.time - self.time) < 0.0005 && fabs(other.endTime - self.endTime) < 0.0005 &&
+           NSEqualRanges(other.range, self.range);
+}
+
+- (NSUInteger)hash {
+    return (NSUInteger)llround(self.time * 100.0) ^ self.range.location ^ (self.range.length << 8);
+}
+
+@end
+
+/// The words that fit inside `text`: a finite, non-empty range within its length, with sane times.
+/// Anything else is dropped; an empty result is nil so callers can test `line.words != nil`.
+static NSArray<CLLyricWord *> *CLValidWords(NSArray<CLLyricWord *> *words, NSString *text) {
+    if (![words isKindOfClass:[NSArray class]] || words.count == 0) return nil;
+    NSMutableArray<CLLyricWord *> *kept = [NSMutableArray arrayWithCapacity:words.count];
+    for (id candidate in words) {
+        if (![candidate isKindOfClass:[CLLyricWord class]]) continue;
+        CLLyricWord *word = candidate;
+        if (word.range.length == 0 || NSMaxRange(word.range) > text.length) continue;
+        if (!isfinite(word.time) || !isfinite(word.endTime) || word.endTime < word.time) continue;
+        [kept addObject:word];
+    }
+    return kept.count ? [kept copy] : nil;
+}
+
 #pragma mark - CLLyricLine
 
 @implementation CLLyricLine
@@ -149,6 +190,11 @@ static NSString *CLJSONStringOrNil(id value) {
 
 - (void)setText:(NSString *)text {
     _text = [([text isKindOfClass:[NSString class]] ? text : @"") copy];
+    if (_words) _words = CLValidWords(_words, _text);   // ranges that no longer fit are dropped
+}
+
+- (void)setWords:(NSArray<CLLyricWord *> *)words {
+    _words = CLValidWords(words, _text ?: @"");
 }
 
 - (void)setTime:(NSTimeInterval)time {
@@ -246,7 +292,18 @@ static NSString *CLJSONStringOrNil(id value) {
     for (CLLyricLine *line in self.lines) {
         if (![line isKindOfClass:[CLLyricLine class]]) continue;
         NSTimeInterval time = isfinite(line.time) ? line.time : 0;
-        [lines addObject:@{ @"t": @(time), @"text": line.text ?: @"" }];
+        NSMutableDictionary *entry = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                                      @(time), @"t", line.text ?: @"", @"text", nil];
+        if (line.words.count) {
+            // [start, end, location, length] per word: compact, the cache holds many songs.
+            NSMutableArray<NSArray<NSNumber *> *> *words = [NSMutableArray arrayWithCapacity:line.words.count];
+            for (CLLyricWord *word in line.words) {
+                [words addObject:@[ @(word.time), @(word.endTime),
+                                    @(word.range.location), @(word.range.length) ]];
+            }
+            entry[@"w"] = words;
+        }
+        [lines addObject:entry];
     }
 
     NSMutableDictionary *dictionary = [NSMutableDictionary dictionaryWithCapacity:5];
@@ -287,7 +344,27 @@ static NSString *CLJSONStringOrNil(id value) {
             double time = [(NSNumber *)rawTime doubleValue];
             if (!isfinite(time)) continue;
             NSString *text = CLJSONStringOrNil(((NSDictionary *)entry)[@"text"]) ?: @"";
-            [lines addObject:[CLLyricLine lineWithTime:time text:text]];
+            CLLyricLine *line = [CLLyricLine lineWithTime:time text:text];
+            id rawWords = ((NSDictionary *)entry)[@"w"];
+            if ([rawWords isKindOfClass:[NSArray class]]) {
+                NSMutableArray<CLLyricWord *> *words = [NSMutableArray arrayWithCapacity:[rawWords count]];
+                for (id item in (NSArray *)rawWords) {
+                    if (![item isKindOfClass:[NSArray class]] || [item count] != 4) continue;
+                    BOOL numeric = YES;
+                    for (id number in (NSArray *)item) {
+                        if (![number isKindOfClass:[NSNumber class]]) { numeric = NO; break; }
+                    }
+                    if (!numeric) continue;
+                    double start = [item[0] doubleValue], end = [item[1] doubleValue];
+                    double location = [item[2] doubleValue], length = [item[3] doubleValue];
+                    if (!isfinite(start) || !isfinite(end) || !isfinite(location) || !isfinite(length)) continue;
+                    if (location < 0 || length <= 0 || location > (double)NSIntegerMax / 2 || length > (double)NSIntegerMax / 2) continue;
+                    [words addObject:[CLLyricWord wordWithTime:start endTime:end
+                                                         range:NSMakeRange((NSUInteger)location, (NSUInteger)length)]];
+                }
+                line.words = words;
+            }
+            [lines addObject:line];
         }
         lyrics.lines = lines;
     }

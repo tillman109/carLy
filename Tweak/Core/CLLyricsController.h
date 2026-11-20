@@ -88,6 +88,9 @@ typedef void (^CLLyricsControllerObserverBlock)(CLLyricsController *controller,
 - (nullable CLLyricLine *)lineAtIndex:(NSInteger)index;
 /// 0...1 through the current line, for animations.
 - (NSTimeInterval)progressWithinCurrentLine;
+/// The lyric clock (playback position + the active sync offset), or NAN when nothing is playing.
+/// Main queue. Moves continuously, unlike -currentLineIndex; word highlighting follows it.
+- (NSTimeInterval)currentLyricTime;
 
 - (id)addObserver:(CLLyricsControllerObserverBlock)observer;
 - (void)removeObserver:(nullable id)token;

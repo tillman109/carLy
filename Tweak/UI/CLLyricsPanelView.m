@@ -1,6 +1,7 @@
 #import "UI/CLLyricsPanelView.h"
 #import "UI/CLLayoutGeometry.h"
 #import "UI/CLLyricsStyle.h"
+#import "Lyrics/CLWordTiming.h"
 #import "Util/CLLog.h"
 
 const NSTimeInterval CLLyricsPanelAutoScrollPause = 4.0;
@@ -11,6 +12,53 @@ static const NSInteger CLLyricsPanelLabelTag = 9101;
 /// stanza-break row.
 static const CGFloat CLLyricsPanelRowPadding = 4.0;
 static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
+
+/// How often the word highlight is redrawn while a line with word timing is current.
+static const NSTimeInterval CLLyricsPanelWordTick = 1.0 / 30.0;
+
+/// A label that remembers whether it is currently showing word-highlighted attributed text, so a
+/// reused cell can be put back to plain text (UILabel gives no way to ask).
+@interface CLLyricsPanelLabel : UILabel
+@property (nonatomic) BOOL wordStyled;
+@end
+
+@implementation CLLyricsPanelLabel
+@end
+
+/// 0...1: how much of `word` has been sung at lyric time `now`.
+static double CLLyricsWordProgress(CLLyricWord *word, NSTimeInterval now) {
+    NSTimeInterval duration = word.endTime - word.time;
+    if (duration <= 0.001) return now >= word.time ? 1.0 : 0.0;
+    double progress = (now - word.time) / duration;
+    if (progress < 0.0) return 0.0;
+    if (progress > 1.0) return 1.0;
+    return progress;
+}
+
+/// Changes only when the picture changes: -1 before the first word, INT max after the last, else
+/// the time in 1/60 s steps. Lets the redraw loop skip frames while playback is paused or between
+/// words of a held note.
+static NSInteger CLLyricsWordPaintKey(NSArray<CLLyricWord *> *words, NSTimeInterval now) {
+    NSTimeInterval first = INFINITY, last = -INFINITY;
+    for (CLLyricWord *word in words) {
+        first = fmin(first, word.time);
+        last = fmax(last, word.endTime);
+    }
+    if (now < first) return -1;
+    if (now >= last) return NSIntegerMax;
+    return (NSInteger)(now * 60.0);
+}
+
+static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
+    CGFloat fr, fg, fb, fa, tr, tg, tb, ta;
+    if (![from getRed:&fr green:&fg blue:&fb alpha:&fa] || ![to getRed:&tr green:&tg blue:&tb alpha:&ta]) {
+        return fraction < 0.5 ? from : to;
+    }
+    return [UIColor colorWithRed:fr + (tr - fr) * fraction
+                           green:fg + (tg - fg) * fraction
+                            blue:fb + (tb - fb) * fraction
+                           alpha:fa + (ta - fa) * fraction];
+}
 
 @interface CLLyricsPanelView () <UITableViewDataSource, UITableViewDelegate>
 @end
@@ -24,6 +72,11 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
     UIView *_backgroundView;
     UITableView *_tableView;
     NSArray<NSString *> *_rows;
+    /// Parallel to _rows: the CLLyricWords to sweep through for that row, or NSNull (whole line).
+    NSArray *_rowWords;
+    NSTimer *_wordTimer;             ///< runs only while the current row has words and we are on screen
+    NSInteger _lastPaintRow;         ///< what the word highlight last drew, to skip identical frames
+    NSInteger _lastPaintKey;
     BOOL _rowsAreTimed;              ///< synced lyrics: rows map 1:1 to lyrics.lines and can be tapped
     NSTimer *_resumeTimer;
     CFAbsoluteTime _autoScrollBlockedUntil;
@@ -47,6 +100,8 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
 - (void)dealloc {
     [_resumeTimer invalidate];
     _resumeTimer = nil;
+    [_wordTimer invalidate];
+    _wordTimer = nil;
     _tableView.dataSource = nil;
     _tableView.delegate = nil;
 }
@@ -54,6 +109,9 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
 - (void)cl_commonInit {
     _currentLineIndex = -1;          // CLLyricsNoLine
     _rows = @[];
+    _rowWords = @[];
+    _lastPaintRow = -1;
+    _lastPaintKey = 0;
     _rowsAreTimed = NO;
     _fit = CLLayoutPanelFitColumn;
 
@@ -125,6 +183,15 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
         [self->_tableView reloadData];
         [self cl_updateBackgroundVisibility];
         [self->_tableView setContentOffset:CGPointMake(0.0, -self->_tableView.contentInset.top) animated:NO];
+        [self cl_updateWordTimer];
+    });
+}
+
+- (void)setLyricTimeProvider:(CLLyricsPanelTimeProvider)lyricTimeProvider {
+    _lyricTimeProvider = [lyricTimeProvider copy];
+    CLUIRunOnMain(^{
+        [self cl_restyleVisibleCells];
+        [self cl_updateWordTimer];
     });
 }
 
@@ -134,6 +201,7 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
         self->_currentLineIndex = index;
         if (!self->_rowsAreTimed) return;
         [self cl_restyleVisibleCells];
+        [self cl_updateWordTimer];
         [self cl_scrollToCurrentLineAnimated:animated force:NO];
     });
 }
@@ -158,6 +226,7 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
         [self cl_rebuildRows];                 // showNoteOnGap / showPlainWhenUnsynced can change
         [self->_tableView reloadData];         // fonts changed: row heights must be re-measured
         [self cl_updateBackgroundVisibility];
+        [self cl_updateWordTimer];
         [self cl_scrollToCurrentLineAnimated:NO force:NO];
     });
 }
@@ -200,6 +269,7 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
         [_resumeTimer invalidate];
         _resumeTimer = nil;
     }
+    [self cl_updateWordTimer];     // starts with the window, stops without it
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
@@ -237,14 +307,25 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
 - (void)cl_rebuildRows {
     CLLyrics *lyrics = _lyrics;
     NSMutableArray<NSString *> *rows = [NSMutableArray array];
+    NSMutableArray *rowWords = [NSMutableArray array];
     BOOL timed = NO;
 
     if (lyrics.kind == CLLyricsKindSynced && lyrics.lines.count > 0) {
         timed = YES;
-        for (CLLyricLine *line in lyrics.lines) {
+        NSArray<CLLyricLine *> *lines = lyrics.lines;
+        for (NSUInteger i = 0; i < lines.count; i++) {
+            CLLyricLine *line = lines[i];
             NSString *text = [(line.text ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-            if (CLLyricsTextIsGap(text)) text = _style.showNoteOnGap ? CLLyricsNoteGlyph : @"";
+            BOOL gap = CLLyricsTextIsGap(text);
+            if (gap) text = _style.showNoteOnGap ? CLLyricsNoteGlyph : @"";
             [rows addObject:text];
+
+            NSArray<CLLyricWord *> *words = nil;
+            if (_style.wordHighlight && !gap) {
+                NSTimeInterval next = (i + 1 < lines.count) ? lines[i + 1].time : NAN;
+                words = CLWordsForLine(text, line, next, _style.wordEstimate);
+            }
+            [rowWords addObject:words ?: (id)NSNull.null];
         }
     } else if (lyrics.kind == CLLyricsKindInstrumental) {
         if (_style.showNoteOnGap) [rows addObject:CLLyricsNoteGlyph];
@@ -260,8 +341,17 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
     }
 
     _rows = [rows copy];
+    _rowWords = timed ? [rowWords copy] : @[];
+    _lastPaintRow = -1;
     _rowsAreTimed = timed;
     _hasVisibleContent = (_rows.count > 0);
+}
+
+/// The words to sweep through for `row`, or nil when it is highlighted as a whole line.
+- (NSArray<CLLyricWord *> *)cl_wordsForRow:(NSInteger)row {
+    if (!_rowsAreTimed || row < 0 || row >= (NSInteger)_rowWords.count) return nil;
+    id words = _rowWords[(NSUInteger)row];
+    return [words isKindOfClass:[NSArray class]] ? words : nil;
 }
 
 - (void)cl_applyBackgroundStyle {
@@ -277,11 +367,11 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
 
 #pragma mark - Cells
 
-- (UILabel *)cl_labelInCell:(UITableViewCell *)cell {
-    UILabel *label = (UILabel *)[cell.contentView viewWithTag:CLLyricsPanelLabelTag];
-    if ([label isKindOfClass:UILabel.class]) return label;
+- (CLLyricsPanelLabel *)cl_labelInCell:(UITableViewCell *)cell {
+    CLLyricsPanelLabel *label = (CLLyricsPanelLabel *)[cell.contentView viewWithTag:CLLyricsPanelLabelTag];
+    if ([label isKindOfClass:CLLyricsPanelLabel.class]) return label;
 
-    label = [[UILabel alloc] initWithFrame:CGRectZero];
+    label = [[CLLyricsPanelLabel alloc] initWithFrame:CGRectZero];
     label.tag = CLLyricsPanelLabelTag;
     label.translatesAutoresizingMaskIntoConstraints = NO;
     label.numberOfLines = 0;
@@ -304,17 +394,34 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
 }
 
 - (void)cl_configureCell:(UITableViewCell *)cell forRow:(NSInteger)row {
-    UILabel *label = [self cl_labelInCell:cell];
+    CLLyricsPanelLabel *label = [self cl_labelInCell:cell];
     NSString *text = (row >= 0 && row < (NSInteger)_rows.count) ? _rows[(NSUInteger)row] : @"";
-    if (![label.text isEqualToString:text]) label.text = text;
-    label.textAlignment = _style.alignment;
 
     BOOL isCurrent = _rowsAreTimed && (row == _currentLineIndex);
     BOOL dimmed = _rowsAreTimed && !isCurrent;
-    UIFont *font = _rowFont ?: _style.currentLineFont;
-    if (label.font != font) label.font = font;
-    // Unsynced text has no "current" line, so it is rendered at full strength rather than dimmed.
-    label.textColor = dimmed ? _style.nextColor : _style.currentColor;
+
+    // The current line sweeps word by word when it has word timing and the clock is available.
+    NSArray<CLLyricWord *> *words = isCurrent ? [self cl_wordsForRow:row] : nil;
+    CLLyricsPanelTimeProvider provider = _lyricTimeProvider;
+    NSTimeInterval now = (words && provider) ? provider() : NAN;
+    if (words && isfinite(now)) {
+        label.textAlignment = _style.alignment;
+        [self cl_paintWords:words row:row time:now inLabel:label];
+    } else {
+        if (label.wordStyled) {        // a reused cell that was sweeping: back to plain text
+            label.wordStyled = NO;
+            label.attributedText = nil;
+            label.text = nil;
+        }
+        if (isCurrent) _lastPaintRow = -1;
+        if (![label.text isEqualToString:text]) label.text = text;
+        label.textAlignment = _style.alignment;
+
+        UIFont *font = _rowFont ?: _style.currentLineFont;
+        if (label.font != font) label.font = font;
+        // Unsynced text has no "current" line, so it is rendered at full strength rather than dimmed.
+        label.textColor = dimmed ? _style.nextColor : _style.currentColor;
+    }
 
     // A blank row is a stanza break (or a gap marker with the note glyph turned off): it keeps its
     // place in the list with a little air, not a full line's height.
@@ -347,6 +454,115 @@ static const CGFloat CLLyricsPanelBlankRowHeight = 12.0;
         UITableViewCell *cell = [self->_tableView cellForRowAtIndexPath:indexPath];
         if (cell) [self cl_configureCell:cell forRow:indexPath.row];
     }
+}
+
+#pragma mark - Word highlight
+
+/// The row's text with sung words in the current colour, unsung ones dimmed, and the word being
+/// sung swept left to right (by character, the boundary character blended).
+- (NSAttributedString *)cl_attributedTextForRow:(NSInteger)row words:(NSArray<CLLyricWord *> *)words time:(NSTimeInterval)now {
+    NSString *text = (row >= 0 && row < (NSInteger)_rows.count) ? _rows[(NSUInteger)row] : @"";
+    UIFont *font = _rowFont ?: _style.currentLineFont;
+    UIColor *bright = _style.currentColor;
+    UIColor *dim = _style.nextColor;
+    NSMutableAttributedString *result = [[NSMutableAttributedString alloc]
+        initWithString:text
+            attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: dim }];
+    NSUInteger length = text.length;
+    NSUInteger cursor = 0;
+    BOOL previousComplete = NO;
+
+    for (CLLyricWord *word in words) {
+        NSRange range = word.range;
+        if (range.location < cursor || range.length == 0 || NSMaxRange(range) > length) continue;
+        double progress = CLLyricsWordProgress(word, now);
+
+        // Characters between words (spaces, a quote the timing did not cover) follow the word
+        // they lead into: lit once that word has started.
+        if (range.location > cursor && progress > 0.0) {
+            [result addAttribute:NSForegroundColorAttributeName value:bright
+                           range:NSMakeRange(cursor, range.location - cursor)];
+        }
+
+        if (progress >= 1.0) {
+            [result addAttribute:NSForegroundColorAttributeName value:bright range:range];
+        } else if (progress > 0.0) {
+            NSMutableArray<NSValue *> *units = [NSMutableArray array];
+            [text enumerateSubstringsInRange:range
+                                     options:NSStringEnumerationByComposedCharacterSequences
+                                  usingBlock:^(NSString *substring, NSRange unit, NSRange enclosing, BOOL *stop) {
+                [units addObject:[NSValue valueWithRange:unit]];
+            }];
+            double scaled = progress * (double)units.count;
+            NSUInteger whole = (NSUInteger)floor(scaled);
+            if (whole > units.count) whole = units.count;
+            if (whole > 0) {
+                NSRange lastLit = units[whole - 1].rangeValue;
+                [result addAttribute:NSForegroundColorAttributeName value:bright
+                               range:NSMakeRange(range.location, NSMaxRange(lastLit) - range.location)];
+            }
+            double fraction = scaled - (double)whole;
+            if (whole < units.count && fraction > 0.0) {
+                [result addAttribute:NSForegroundColorAttributeName
+                               value:CLLyricsBlend(dim, bright, (CGFloat)fraction)
+                               range:units[whole].rangeValue];
+            }
+        }
+        previousComplete = (progress >= 1.0);
+        cursor = NSMaxRange(range);
+    }
+
+    // Trailing punctuation outside the last word lights up with it.
+    if (cursor < length && previousComplete) {
+        [result addAttribute:NSForegroundColorAttributeName value:bright range:NSMakeRange(cursor, length - cursor)];
+    }
+    return result;
+}
+
+- (void)cl_paintWords:(NSArray<CLLyricWord *> *)words row:(NSInteger)row time:(NSTimeInterval)now
+              inLabel:(CLLyricsPanelLabel *)label {
+    label.wordStyled = YES;
+    label.attributedText = [self cl_attributedTextForRow:row words:words time:now];
+    _lastPaintRow = row;
+    _lastPaintKey = CLLyricsWordPaintKey(words, now);
+}
+
+/// Runs only while it can matter: on screen, a clock to read, and a current row with words.
+- (void)cl_updateWordTimer {
+    BOOL needed = (self.window != nil) && (_lyricTimeProvider != nil) &&
+                  ([self cl_wordsForRow:_currentLineIndex] != nil);
+    if (needed && !_wordTimer) {
+        __weak typeof(self) weakSelf = self;
+        NSTimer *timer = [NSTimer timerWithTimeInterval:CLLyricsPanelWordTick repeats:YES
+                                                  block:^(NSTimer *fired) {
+            [weakSelf cl_wordTick];
+        }];
+        timer.tolerance = CLLyricsPanelWordTick / 4.0;
+        [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
+        _wordTimer = timer;
+    } else if (!needed && _wordTimer) {
+        [_wordTimer invalidate];
+        _wordTimer = nil;
+    }
+}
+
+- (void)cl_wordTick {
+    // A timer block has no handler above it: an exception here would abort CarPlayTemplateUIHost.
+    CLUISafePerform(@"lyrics word tick", ^{
+        NSInteger row = self->_currentLineIndex;
+        NSArray<CLLyricWord *> *words = [self cl_wordsForRow:row];
+        CLLyricsPanelTimeProvider provider = self->_lyricTimeProvider;
+        if (!words || !provider || self.hidden || !self.window) return;
+
+        NSTimeInterval now = provider();
+        if (!isfinite(now)) return;
+        NSInteger key = CLLyricsWordPaintKey(words, now);
+        if (row == self->_lastPaintRow && key == self->_lastPaintKey) return;   // nothing moved
+
+        UITableViewCell *cell = [self->_tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:0]];
+        if (!cell) return;                                                      // scrolled out of view
+        [self cl_paintWords:words row:row time:now inLabel:[self cl_labelInCell:cell]];
+    });
 }
 
 #pragma mark - Auto-scroll
