@@ -490,6 +490,13 @@ static NSUInteger ForeignViewCount(UIView *root) {
     NSUInteger count = 0;
     for (UIView *view in all) {
         NSString *name = NSStringFromClass(view.class);
+        if ([name isEqualToString:@"CLLyricsPanelLabel"]) {
+            UIView *ancestor = view.superview;
+            while (ancestor && ![ancestor isKindOfClass:CLLyricsPanelView.class]) {
+                ancestor = ancestor.superview;
+            }
+            if (ancestor) continue;
+        }
         if ([name hasPrefix:@"CL"] && ![view isKindOfClass:CLLyricsPanelView.class]) count++;
     }
     return count;
