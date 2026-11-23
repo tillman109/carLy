@@ -4,8 +4,8 @@
 // host's Now Playing view (the customizer hides that while it is up), so it fits every screen shape,
 // including the ones where no split layout fits (the CarPlay Simulator's "Minimum").
 //
-// Pure UIKit. Main thread only. The lyrics panel inside stays display-only (never a focus target);
-// the four buttons are ordinary UIButtons, so the knob and touch both reach them.
+// UIKit/QuartzCore. Main thread only. Lyrics touch controls are opt-in; the inner table stays
+// non-focusable to preserve CarPlay rotary controls. The four buttons remain ordinary UIButtons.
 #import <UIKit/UIKit.h>
 #import "Core/CLNowPlayingSource.h"
 #import "UI/CLLyricsPanelView.h"

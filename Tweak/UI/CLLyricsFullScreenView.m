@@ -1,6 +1,7 @@
 #import "UI/CLLyricsFullScreenView.h"
 #import "UI/CLLayoutGeometry.h"
 #import "UI/CLLyricsStyle.h"
+#import "UI/CLSongMarquee.h"
 
 #import <objc/message.h>
 
@@ -31,6 +32,8 @@ static const NSTimeInterval kCLFullScreenProgressTick = 0.5;
     UILabel *_statusLabel;
     UILabel *_titleLabel;
     UILabel *_artistLabel;
+    CLSongMarquee *_titleMarquee;
+    CLSongMarquee *_artistMarquee;
     UIButton *_previousButton;
     UIButton *_playButton;
     UIButton *_nextButton;
@@ -157,6 +160,10 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
     [text setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
     [self addSubview:text];
     _textStack = text;
+    _titleMarquee = [CLSongMarquee new];
+    _titleMarquee.role = @"full-screen title";
+    _artistMarquee = [CLSongMarquee new];
+    _artistMarquee.role = @"full-screen artist";
     [self cl_buildProgressRow];
 
     // The transport row: CarPlay's own button class, glyphs and height (the host's images replace
@@ -279,6 +286,20 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
     BOOL narrow = CGRectGetWidth(self.bounds) < kCLFullScreenMinimumWidthForText;
     if (_textStack.isHidden != narrow) _textStack.hidden = narrow;
     [self cl_layoutProgressFill];
+    [self cl_updateSongMarquees];
+}
+
+// The full-screen labels are not Spotify's labels and must be animated independently.
+// This runs after layout (when compressed UILabel widths are known); the helper keeps
+// the same layer/animation while nothing changes, so playback ticks don't restart it.
+- (void)cl_updateSongMarquees {
+    if (_textStack.isHidden || !self.window) {
+        [_titleMarquee stop];
+        [_artistMarquee stop];
+        return;
+    }
+    [_titleMarquee updateForLabel:_titleLabel sourceText:_titleLabel.text];
+    [_artistMarquee updateForLabel:_artistLabel sourceText:_artistLabel.text];
 }
 
 - (void)cl_layoutProgressFill {
@@ -317,7 +338,12 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
     [super didMoveToWindow];
     [_progressTimer invalidate];
     _progressTimer = nil;
-    if (!self.window) return;
+    if (!self.window) {
+        [_titleMarquee stop];
+        [_artistMarquee stop];
+        return;
+    }
+    [self setNeedsLayout];
     // A block timer holding self weakly: the view can go away without anyone stopping it first.
     __weak typeof(self) weakSelf = self;
     _progressTimer = [NSTimer timerWithTimeInterval:kCLFullScreenProgressTick repeats:YES block:^(NSTimer *timer) {
@@ -329,6 +355,8 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
 
 - (void)dealloc {
     [_progressTimer invalidate];
+    [_titleMarquee stop];
+    [_artistMarquee stop];
 }
 
 /// Knob focus lands on play/pause first (like CarPlay's own player), the microphone next.
@@ -345,6 +373,7 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
     if (!CLSameText(_artistLabel.text, artistText)) _artistLabel.text = artistText;
     if (_titleLabel.isHidden != (titleText == nil)) _titleLabel.hidden = (titleText == nil);
     if (_artistLabel.isHidden != (artistText == nil)) _artistLabel.hidden = (artistText == nil);
+    [self cl_updateSongMarquees];
 }
 
 - (void)setPlaying:(BOOL)playing {
@@ -405,6 +434,7 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
     UIColor *artist = color ?: UIColor.secondaryLabelColor;
     if (![_progressFill.backgroundColor isEqual:fill]) _progressFill.backgroundColor = fill;
     if (![_artistLabel.textColor isEqual:artist]) _artistLabel.textColor = artist;
+    [self cl_updateSongMarquees];
 }
 
 - (void)setStatusText:(NSString *)text {
@@ -416,6 +446,7 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
 
 - (void)applyPrefs {
     [_panelView applyPrefs];
+    [self cl_updateSongMarquees];
 }
 
 #pragma mark - Actions

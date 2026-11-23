@@ -18,6 +18,7 @@
 // CLPrefsActiveDomain() resolves to.
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
 #import "UI/CLLyricsFullScreenView.h"
 #import "UI/CLLyricsPanelView.h"
@@ -1947,6 +1948,61 @@ static void TestMicrophoneAndFullScreen(void) {
     EXPECT(!fullScreen.panelView.isHidden && CGRectGetWidth(fullScreen.panelView.frame) > 700.0,
            "full screen: the lyrics span the width (%s)", NSStringFromCGRect(fullScreen.panelView.frame).UTF8String);
     EXPECT(fullScreen.panelView.fit == CLLayoutPanelFitRows, "full screen: the rows fit");
+
+    // Full-screen lyrics has its *own* title/artist labels. The stock Now Playing marquees
+    // cannot animate them; verify both layers and scrolling here.
+    NSString *longTitle = @"Sometimes You're The Hammer, Sometimes You're The Nail";
+    NSString *longArtist = @"A Day To Remember, Another Very Long Artist Name";
+    [fullScreen setTitle:longTitle artist:longArtist];
+    [fullScreen setNeedsLayout];
+    Layout(vc);
+    UIStackView *songStack = nil;
+    for (UIView *candidate in fullScreen.subviews) {
+        if (![candidate isKindOfClass:UIStackView.class]) continue;
+        UIStackView *stack = (UIStackView *)candidate;
+        if (stack.arrangedSubviews.count == 2 &&
+            [stack.arrangedSubviews[0] isKindOfClass:UILabel.class] &&
+            [stack.arrangedSubviews[1] isKindOfClass:UILabel.class]) {
+            songStack = stack;
+            break;
+        }
+    }
+    EXPECT(songStack != nil, "full screen: song-details stack found");
+    if (songStack) {
+        UILabel *song = (UILabel *)songStack.arrangedSubviews[0];
+        UILabel *artist = (UILabel *)songStack.arrangedSubviews[1];
+        BOOL songScrolling = NO, artistScrolling = NO;
+        for (CALayer *sublayer in song.layer.sublayers) {
+            if ([sublayer isKindOfClass:CATextLayer.class] &&
+                [sublayer animationForKey:@"cl-song-scroll"]) songScrolling = YES;
+        }
+        for (CALayer *sublayer in artist.layer.sublayers) {
+            if ([sublayer isKindOfClass:CATextLayer.class] &&
+                [sublayer animationForKey:@"cl-song-scroll"]) artistScrolling = YES;
+        }
+        EXPECT(songScrolling, "full screen: long song title marquee animates");
+        EXPECT(artistScrolling, "full screen: long artist marquee animates");
+    }
+
+    // Opt-in gestures on the panel, but never make its internal table focusable for the knob.
+    SetPref(CLPrefKeyLyricsTouchControls, @YES);
+    Pump(); Layout(vc);
+    EXPECT(fullScreen.panelView.isUserInteractionEnabled,
+           "full screen: touch scroll/seek becomes interactive when enabled");
+    NSMutableArray *innerTables = [NSMutableArray array];
+    CollectViews(fullScreen.panelView, UITableView.class, innerTables);
+    UITableView *innerTable = innerTables.firstObject;
+    EXPECT(innerTable && !innerTable.userInteractionEnabled && !innerTable.scrollEnabled &&
+           !innerTable.canBecomeFocused,
+           "full screen: rotary focus stays off the internal table");
+    EXPECT(fullScreen.panelView.delegate == (id<CLLyricsPanelViewDelegate>)customizer,
+           "full screen: lyric tap-to-seek is wired to playback controller");
+    SetPref(CLPrefKeyLyricsTouchControls, @NO);
+    Pump(); Layout(vc);
+    EXPECT(!fullScreen.panelView.isUserInteractionEnabled,
+           "full screen: touch switch disables interaction again");
+
+
     for (UIButton *button in fullScreen.controlButtons) {
         EXPECT(CGRectGetMaxY([button convertRect:button.bounds toView:vc.view]) <= 480.5 &&
                CGRectGetMinY([button convertRect:button.bounds toView:vc.view]) >= CGRectGetMaxY(RootFrame(fullScreen.panelView, vc)),
