@@ -49,7 +49,7 @@ clang -o "$OUT" \
     -target arm64-apple-ios17.0 -isysroot "$SDK" \
     -fobjc-arc -Wall -Werror -Wno-unused-function -DCL_VERSION='"test"' \
     -I"$THEOS/vendor/include" -ITweak -ITweak/Private \
-    -framework UIKit -framework CoreGraphics
+    -framework UIKit -framework CoreGraphics -framework QuartzCore
 ldid -S "$OUT"
 
 echo "== running =="

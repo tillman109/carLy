@@ -8,7 +8,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME := carLy
 carLy_FILES := $(shell find Tweak -name '*.m' -o -name '*.x' | sort)
 carLy_CFLAGS := -fobjc-arc -Wall -Werror -Wno-unused-function -ITweak -ITweak/Private -DCL_VERSION=\"$(THEOS_PACKAGE_BASE_VERSION)\"
-carLy_FRAMEWORKS := UIKit CoreGraphics
+carLy_FRAMEWORKS := UIKit CoreGraphics QuartzCore
 carLy_LIBRARIES := sqlite3
 
 SUBPROJECTS := Prefs
