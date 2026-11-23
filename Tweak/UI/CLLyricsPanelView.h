@@ -1,7 +1,7 @@
 // Owned by the ui slice. The full, scrolling lyrics panel (effective modes 4 "side by side" and
 // 5 "full panel", shown as "No Artwork"): every line in one font sized to fit the panel (see
-// CLLayoutPanelFit), the active one centred and at full colour. Display only: it takes no touches and never CarPlay knob/touchpad
-// focus (see -cl_commonInit), so the drag-to-scroll and tap-to-seek paths below are dormant.
+// CLLayoutPanelFit), the active one centred and at full colour. Touch gestures are opt-in in
+// preferences: the internal table stays non-interactive to avoid stealing CarPlay rotary focus.
 //
 // Pure UIKit + CLLyricsTypes. Main thread only (public methods hop to the main queue themselves).
 #import <UIKit/UIKit.h>

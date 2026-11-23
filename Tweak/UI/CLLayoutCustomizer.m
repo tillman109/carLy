@@ -343,6 +343,16 @@ static BOOL sHostColumnHooksInstalled = NO;
     BOOL _savedBackgroundHidden;
     CGFloat _savedBackgroundAlpha;
     BOOL _savedBackgroundEffectHidden;
+    // A compositor-driven marquee on the host title UILabel, without adding another UILabel
+    // (the host's label-order inspection relies on title/artist/album indices remaining stable).
+    __weak UILabel *_marqueeTitleHost;
+    CATextLayer *_marqueeTextLayer;
+    UIColor *_marqueeOriginalColor;
+    BOOL _marqueeOriginalClips;
+    NSString *_marqueeLastText;
+    NSString *_marqueeLastFontName;
+    CGFloat _marqueeLastWidth;
+    CGFloat _marqueeLastFontSize;
     BOOL _hidingProgress;   // Progress Bar Hide is holding the host's bar hidden
     BOOL _tintStateSaved;
     UIColor *_savedProgressTintColor;
@@ -1124,6 +1134,7 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
         CLLyricsFullScreenView *view = [[CLLyricsFullScreenView alloc] initWithFrame:CGRectZero];
         view.translatesAutoresizingMaskIntoConstraints = NO;
         view.delegate = self;
+        view.panelView.delegate = self;
         view.panelView.lyricTimeProvider = CLLyricClockProvider();
         CLLyricsController *controller = CLLyricsController.sharedController;
         [view.panelView setLyrics:controller.currentLyrics];
@@ -1279,6 +1290,7 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
         [_fullScreenView.panelView setCurrentLineIndex:controller.currentLineIndex animated:!lyricsChanged];
     }
     [self cl_updateLyricsVisibility];
+    if (change & CLLyricsControllerChangePlayback) [self cl_applyTitleMarquee];
 }
 
 - (void)cl_pushLyrics:(CLLyrics *)lyrics lineIndex:(NSInteger)lineIndex animated:(BOOL)animated {
@@ -1359,6 +1371,7 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
         [self cl_applyBackdrop];
         [self cl_applyAccentTint];
         [self cl_applyAlbumVisibility];
+        [self cl_applyTitleMarquee];
         [self cl_applyProgressStyle];
         [self cl_applyBarButtonVisibility];
         [self cl_applyPanelFit];
@@ -1561,6 +1574,89 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     _tintStateSaved = NO;
 }
 
+#pragma mark - Song title marquee
+
+- (void)cl_removeTitleMarquee {
+    [_marqueeTextLayer removeAllAnimations];
+    [_marqueeTextLayer removeFromSuperlayer];
+    _marqueeTextLayer = nil;
+    UILabel *host = _marqueeTitleHost;
+    if (host) {
+        if (_marqueeOriginalColor) host.textColor = _marqueeOriginalColor;
+        host.clipsToBounds = _marqueeOriginalClips;
+    }
+    _marqueeTitleHost = nil;
+    _marqueeOriginalColor = nil;
+    _marqueeLastText = nil;
+    _marqueeLastFontName = nil;
+    _marqueeLastWidth = 0;
+    _marqueeLastFontSize = 0;
+}
+
+// Only animate a title that doesn't fit its host UILabel. CATextLayer is a sublayer, not a
+// subview; it cannot steal touches/focus or change the title/artist/album view discovery.
+- (void)cl_applyTitleMarquee {
+    UILabel *title = [self cl_songDetailsLabels].firstObject;
+    if (![title isKindOfClass:UILabel.class] || title.isHidden || !title.font ||
+        title.text.length == 0 || CGRectGetWidth(title.bounds) < 24.0 ||
+        CGRectGetHeight(title.bounds) < 10.0) {
+        [self cl_removeTitleMarquee];
+        return;
+    }
+    UIFont *font = title.font;
+    NSString *value = title.text;
+    CGFloat available = CGRectGetWidth(title.bounds);
+    CGFloat length = ceil([value sizeWithAttributes:@{NSFontAttributeName: font}].width) + 4.0;
+    if (length <= available + 2.0) {
+        [self cl_removeTitleMarquee];
+        return;
+    }
+    BOOL same = (_marqueeTitleHost == title) && [value isEqualToString:_marqueeLastText] &&
+                [font.fontName isEqualToString:_marqueeLastFontName] &&
+                fabs(font.pointSize - _marqueeLastFontSize) < 0.1 &&
+                fabs(available - _marqueeLastWidth) < 0.5;
+    if (same && _marqueeTextLayer) {
+        // The host can restore text colour in its own layout pass; keep its original text hidden.
+        if (title.textColor != UIColor.clearColor) title.textColor = UIColor.clearColor;
+        return;
+    }
+
+    [self cl_removeTitleMarquee];
+    _marqueeTitleHost = title;
+    _marqueeOriginalColor = title.textColor ?: UIColor.labelColor;
+    _marqueeOriginalClips = title.clipsToBounds;
+    _marqueeLastText = [value copy];
+    _marqueeLastFontName = [font.fontName copy];
+    _marqueeLastWidth = available;
+    _marqueeLastFontSize = font.pointSize;
+
+    CATextLayer *layer = [CATextLayer layer];
+    layer.string = value;
+    layer.font = (__bridge CFTypeRef)font.fontName;
+    layer.fontSize = font.pointSize;
+    layer.foregroundColor = _marqueeOriginalColor.CGColor;
+    layer.contentsScale = UIScreen.mainScreen.scale;
+    layer.alignmentMode = kCAAlignmentLeft;
+    layer.truncationMode = kCATruncationNone;
+    layer.wrapped = NO;
+    layer.frame = CGRectMake(0.0, MAX(0.0, (CGRectGetHeight(title.bounds) - font.lineHeight) / 2.0),
+                             length, font.lineHeight + 4.0);
+    _marqueeTextLayer = layer;
+    title.clipsToBounds = YES;
+    [title.layer addSublayer:layer];
+    title.textColor = UIColor.clearColor;
+
+    CABasicAnimation *slide = [CABasicAnimation animationWithKeyPath:@"transform.translation.x"];
+    slide.fromValue = @0.0;
+    slide.toValue = @(-(length - available));
+    slide.duration = MAX(7.0, (length - available) / 18.0);  // ~18 points/second
+    slide.autoreverses = YES;
+    slide.repeatCount = HUGE_VALF;
+    slide.beginTime = CACurrentMediaTime() + 1.0;
+    slide.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    [layer addAnimation:slide forKey:@"cl-title-marquee"];
+}
+
 #pragma mark - Album label
 
 - (void)cl_applyAlbumVisibility {
@@ -1735,6 +1831,7 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
 
     if (_hidingProgress) [self cl_returnProgressToHost];
 
+    [self cl_removeTitleMarquee];
     [self cl_restoreAccentTint];
 
     UILabel *album = _hiddenAlbumLabel;

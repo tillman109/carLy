@@ -43,6 +43,7 @@ void CLUISafePerform(NSString *_Nullable what, dispatch_block_t _Nullable block)
 @property (nonatomic, readonly) BOOL animations;
 @property (nonatomic, readonly) BOOL wordHighlight;           ///< sweep the current line word by word
 @property (nonatomic, readonly) BOOL wordEstimate;            ///< ...also for lyrics timed per line only
+@property (nonatomic, readonly) BOOL keepSungBright;          ///< previous lines use current colour
 @property (nonatomic, readonly) BOOL showNoteOnGap;
 @property (nonatomic, readonly) BOOL showPlainWhenUnsynced;
 @property (nonatomic, readonly) NSInteger backgroundStyle;    ///< 0 none, 1 translucent pill, 2 solid

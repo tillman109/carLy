@@ -233,6 +233,9 @@ static void CLPrefsDarwinCallback(CFNotificationCenterRef center, void *observer
     resolved[CLPrefKeyLyricsAnimations] = @(CLPrefsBool(raw(CLPrefKeyLyricsAnimations), YES));
     resolved[CLPrefKeyLyricsWordHighlight] = @(CLPrefsBool(raw(CLPrefKeyLyricsWordHighlight), YES));
     resolved[CLPrefKeyLyricsWordEstimate] = @(CLPrefsBool(raw(CLPrefKeyLyricsWordEstimate), YES));
+    resolved[CLPrefKeyLyricsKeepSungBright] = @(CLPrefsBool(raw(CLPrefKeyLyricsKeepSungBright), YES));
+    resolved[CLPrefKeyLyricsTouchControls] = @(CLPrefsBool(raw(CLPrefKeyLyricsTouchControls), NO));
+    resolved[CLPrefKeyLyricsSnapBackSeconds] = @(CLClampDouble(CLPrefsDouble(raw(CLPrefKeyLyricsSnapBackSeconds), 3.0), 2.0, 5.0));
     resolved[CLPrefKeyLyricsShowPlainWhenUnsynced] = @(CLPrefsBool(raw(CLPrefKeyLyricsShowPlainWhenUnsynced), YES));
     resolved[CLPrefKeyLyricsOffsetMs] = @(CLPrefsInt(raw(CLPrefKeyLyricsOffsetMs), 0));
     resolved[CLPrefKeyServiceLyricsOffsetMs] = @(CLPrefsInt(raw(CLPrefKeyServiceLyricsOffsetMs), 0));
@@ -364,6 +367,9 @@ static void CLPrefsDarwinCallback(CFNotificationCenterRef center, void *observer
 - (NSInteger)serviceLyricsOffsetMs { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyServiceLyricsOffsetMs] integerValue]; }
 - (BOOL)lyricsWordHighlight { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsWordHighlight] boolValue]; }
 - (BOOL)lyricsWordEstimate { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsWordEstimate] boolValue]; }
+- (BOOL)lyricsKeepSungBright { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsKeepSungBright] boolValue]; }
+- (BOOL)lyricsTouchControls { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsTouchControls] boolValue]; }
+- (double)lyricsSnapBackSeconds { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsSnapBackSeconds] doubleValue]; }
 - (BOOL)lyricsShowNoteOnGap { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsShowNoteOnGap] boolValue]; }
 - (NSInteger)lyricsBackground { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsBackground] integerValue]; }
 - (NSString *)lyricsBackgroundColorHex { return (NSString *)[self valueForResolvedKey:CLPrefKeyLyricsBackgroundColor] ?: @"#000000"; }

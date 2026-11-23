@@ -220,6 +220,43 @@
 		</dict>
 		<dict>
 			<key>cell</key><string>PSSwitchCell</string>
+			<key>id</key><string>lyricsKeepSungBright</string>
+			<key>label</key><string>Keep Sung Lyrics Bright</string>
+			<key>key</key><string>lyricsKeepSungBright</string>
+			<key>defaults</key><string>com.andi.carly</string>
+			<key>default</key><true/>
+			<key>PostNotification</key><string>com.andi.carly/prefsChanged</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>Touch Controls</string>
+			<key>footerText</key><string>Optional: swipe through timed lyrics and tap a line to seek. This may affect CarPlay rotary focus on some head units. Test while parked.</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>id</key><string>lyricsTouchControls</string>
+			<key>label</key><string>Enable Touch Scroll &amp; Seek</string>
+			<key>key</key><string>lyricsTouchControls</string>
+			<key>defaults</key><string>com.andi.carly</string>
+			<key>default</key><false/>
+			<key>PostNotification</key><string>com.andi.carly/prefsChanged</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSLinkListCell</string>
+			<key>detail</key><string>PSListItemsController</string>
+			<key>id</key><string>lyricsSnapBackSeconds</string>
+			<key>label</key><string>Return to Current Lyric</string>
+			<key>key</key><string>lyricsSnapBackSeconds</string>
+			<key>defaults</key><string>com.andi.carly</string>
+			<key>default</key><real>3</real>
+			<key>PostNotification</key><string>com.andi.carly/prefsChanged</string>
+			<key>validTitles</key>
+			<array><string>2 seconds</string><string>3 seconds</string><string>4 seconds</string><string>5 seconds</string></array>
+			<key>validValues</key>
+			<array><real>2</real><real>3</real><real>4</real><real>5</real></array>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
 			<key>id</key><string>lyricsShowPlainWhenUnsynced</string>
 			<key>label</key><string>Show Unsynced Lyrics</string>
 			<key>key</key><string>lyricsShowPlainWhenUnsynced</string>

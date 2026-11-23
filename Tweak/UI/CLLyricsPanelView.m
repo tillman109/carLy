@@ -3,8 +3,9 @@
 #import "UI/CLLyricsStyle.h"
 #import "Lyrics/CLWordTiming.h"
 #import "Util/CLLog.h"
+#import "Util/CLPrefs.h"
 
-const NSTimeInterval CLLyricsPanelAutoScrollPause = 4.0;
+const NSTimeInterval CLLyricsPanelAutoScrollPause = 3.0;
 
 static NSString *const CLLyricsPanelCellIdentifier = @"CLLyricsPanelCell";
 static const NSInteger CLLyricsPanelLabelTag = 9101;
@@ -60,7 +61,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
                            alpha:fa + (ta - fa) * fraction];
 }
 
-@interface CLLyricsPanelView () <UITableViewDataSource, UITableViewDelegate>
+@interface CLLyricsPanelView () <UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate>
 @end
 
 @implementation CLLyricsPanelView {
@@ -81,6 +82,9 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     NSTimer *_resumeTimer;
     CFAbsoluteTime _autoScrollBlockedUntil;
     BOOL _userIsDragging;
+    UIPanGestureRecognizer *_touchPan;
+    UITapGestureRecognizer *_touchTap;
+    NSTimeInterval _snapBackSeconds;
 }
 
 #pragma mark - Lifecycle
@@ -152,6 +156,14 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     _tableView.remembersLastFocusedIndexPath = NO;
     _tableView.dataSource = self;
     _tableView.delegate = self;
+    // Touch is handled by the non-focusable panel, not by the internal UITableView. In
+    // particular the table must NEVER become rotary-scrollable on CarPlay.
+    _touchPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(cl_handleTouchPan:)];
+    _touchPan.maximumNumberOfTouches = 1;
+    _touchPan.delegate = self;
+    [self addGestureRecognizer:_touchPan];
+    _touchTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(cl_handleTouchTap:)];
+    [self addGestureRecognizer:_touchTap];
     if (@available(iOS 15.0, *)) {
         _tableView.sectionHeaderTopPadding = 0.0;
     }
@@ -179,6 +191,10 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
         if (lyrics == self->_lyrics) return;
         self->_lyrics = lyrics;
         self->_currentLineIndex = -1;
+        self->_userIsDragging = NO;
+        self->_autoScrollBlockedUntil = 0.0;
+        [self->_resumeTimer invalidate];
+        self->_resumeTimer = nil;
         [self cl_rebuildRows];
         [self->_tableView reloadData];
         [self cl_updateBackgroundVisibility];
@@ -216,6 +232,15 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 
 - (void)applyPrefs {
     CLUIRunOnMain(^{
+        CLPrefs *prefs = CLPrefs.shared;
+        self->_snapBackSeconds = MAX(2.0, MIN(5.0, prefs.lyricsSnapBackSeconds));
+        self.userInteractionEnabled = prefs.lyricsTouchControls;
+        if (!self.userInteractionEnabled) {
+            self->_userIsDragging = NO;
+            self->_autoScrollBlockedUntil = 0.0;
+            [self->_resumeTimer invalidate];
+            self->_resumeTimer = nil;
+        }
         CLLyricsStyle *style = [CLLyricsStyle currentStyle];
         BOOL sameStyle = [style isEqualToStyle:self->_style];
         self->_style = style;
@@ -398,7 +423,8 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     NSString *text = (row >= 0 && row < (NSInteger)_rows.count) ? _rows[(NSUInteger)row] : @"";
 
     BOOL isCurrent = _rowsAreTimed && (row == _currentLineIndex);
-    BOOL dimmed = _rowsAreTimed && !isCurrent;
+    BOOL dimmed = _rowsAreTimed && !isCurrent &&
+                  (!_style.keepSungBright || row > _currentLineIndex);
 
     // The current line sweeps word by word when it has word timing and the clock is available.
     NSArray<CLLyricWord *> *words = isCurrent ? [self cl_wordsForRow:row] : nil;
@@ -583,18 +609,19 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 }
 
 - (void)cl_suspendAutoScroll {
-    _autoScrollBlockedUntil = CFAbsoluteTimeGetCurrent() + CLLyricsPanelAutoScrollPause;
+    NSTimeInterval delay = _snapBackSeconds > 0 ? _snapBackSeconds : CLLyricsPanelAutoScrollPause;
+    _autoScrollBlockedUntil = CFAbsoluteTimeGetCurrent() + delay;
     [_resumeTimer invalidate];
     __weak typeof(self) weakSelf = self;
-    _resumeTimer = [NSTimer scheduledTimerWithTimeInterval:CLLyricsPanelAutoScrollPause
-                                                   repeats:NO
-                                                     block:^(NSTimer *timer) {
+    _resumeTimer = [NSTimer timerWithTimeInterval:delay repeats:NO
+                                           block:^(NSTimer *timer) {
         typeof(self) strongSelf = weakSelf;
         if (!strongSelf) return;
         strongSelf->_autoScrollBlockedUntil = 0.0;
         if (strongSelf->_userIsDragging) return;
         [strongSelf cl_scrollToCurrentLineAnimated:YES force:YES];
     }];
+    [NSRunLoop.mainRunLoop addTimer:_resumeTimer forMode:NSRunLoopCommonModes];
 }
 
 #pragma mark - UITableViewDataSource
@@ -635,6 +662,8 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     if (!_rowsAreTimed) return;
     NSInteger row = indexPath.row;
     if (row < 0 || row >= (NSInteger)_rows.count) return;
+    if (row >= (NSInteger)_lyrics.lines.count ||
+        CLLyricsTextIsGap(_lyrics.lines[(NSUInteger)row].text)) return;
     id<CLLyricsPanelViewDelegate> delegate = self.delegate;
     if ([delegate respondsToSelector:@selector(lyricsPanel:didSelectLineAtIndex:)]) {
         [delegate lyricsPanel:self didSelectLineAtIndex:row];
@@ -645,11 +674,62 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     _resumeTimer = nil;
 }
 
+#pragma mark - Optional touch gestures (the table itself remains non-interactive)
+
+// The gestures belong to the outer UIView, never the UITableView: a scrollable table would
+// steal rotary focus from the host transport controls on CarPlay.
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)recognizer {
+    if (recognizer == _touchPan) {
+        CGPoint velocity = [_touchPan velocityInView:self];
+        return fabs(velocity.y) >= fabs(velocity.x);
+    }
+    return YES;
+}
+
+- (void)cl_handleTouchPan:(UIPanGestureRecognizer *)gesture {
+    if (!self.userInteractionEnabled || !_rowsAreTimed) return;
+    switch (gesture.state) {
+        case UIGestureRecognizerStateBegan:
+            _userIsDragging = YES;
+            [_resumeTimer invalidate];
+            _resumeTimer = nil;
+            break;
+        case UIGestureRecognizerStateChanged: {
+            CGPoint translation = [gesture translationInView:self];
+            [gesture setTranslation:CGPointZero inView:self];
+            CGFloat bottom = MAX(-_tableView.contentInset.top,
+                                 _tableView.contentSize.height - _tableView.bounds.size.height +
+                                 _tableView.contentInset.bottom);
+            CGFloat y = _tableView.contentOffset.y - translation.y;
+            y = MAX(-_tableView.contentInset.top, MIN(bottom, y));
+            [_tableView setContentOffset:CGPointMake(0, y) animated:NO];
+            break;
+        }
+        case UIGestureRecognizerStateEnded:
+        case UIGestureRecognizerStateCancelled:
+        case UIGestureRecognizerStateFailed:
+            _userIsDragging = NO;
+            [self cl_suspendAutoScroll];
+            break;
+        default:
+            break;
+    }
+}
+
+- (void)cl_handleTouchTap:(UITapGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateRecognized ||
+        !self.userInteractionEnabled || !_rowsAreTimed) return;
+    NSIndexPath *index = [_tableView indexPathForRowAtPoint:[gesture locationInView:_tableView]];
+    if (!index) return;
+    [self tableView:_tableView didSelectRowAtIndexPath:index];
+}
+
 #pragma mark - UIScrollViewDelegate
 
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
     _userIsDragging = YES;
-    _autoScrollBlockedUntil = CFAbsoluteTimeGetCurrent() + CLLyricsPanelAutoScrollPause;
+    _autoScrollBlockedUntil = CFAbsoluteTimeGetCurrent() +
+                             (_snapBackSeconds > 0 ? _snapBackSeconds : CLLyricsPanelAutoScrollPause);
     [_resumeTimer invalidate];
     _resumeTimer = nil;
 }
