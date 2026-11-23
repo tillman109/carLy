@@ -298,6 +298,150 @@ static NSUInteger CLHostSpacerGuideCount(UIView *nowPlayingView) {
 
 static BOOL sHostColumnHooksInstalled = NO;
 
+#pragma mark - Non-interactive looping song-detail marquee
+
+// The host labels may contain an ellipsis already. Use the full MediaRemote metadata only
+// when the shortened label matches the same song or artist; otherwise trust the host UI.
+static NSString *CLMarqueeText(NSString *hostText, NSString *sourceText) {
+    if (hostText.length == 0 || sourceText.length == 0) return hostText ?: @"";
+    if ([hostText isEqualToString:sourceText]) return sourceText;
+    NSString *prefix = hostText;
+    if ([prefix hasSuffix:@"..."]) prefix = [prefix substringToIndex:prefix.length - 3];
+    else if ([prefix hasSuffix:@"…"]) prefix = [prefix substringToIndex:prefix.length - 1];
+    prefix = [prefix stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    if (prefix.length > 0 && sourceText.length > hostText.length &&
+        [sourceText rangeOfString:prefix options:(NSCaseInsensitiveSearch | NSAnchoredSearch)].location == 0) {
+        return sourceText;
+    }
+    return hostText;
+}
+
+// The original implementation measured the label itself and often got a 4-5pt overflow,
+// even when a clipping ancestor showed much less. Intersect with each ancestor's clip.
+static CGFloat CLMarqueeViewportWidth(UILabel *label) {
+    if (!label || CGRectIsEmpty(label.bounds)) return 0.0;
+    CGRect visible = label.bounds;
+    for (UIView *ancestor = label.superview; ancestor; ancestor = ancestor.superview) {
+        if (!ancestor.clipsToBounds && !ancestor.layer.masksToBounds) continue;
+        CGRect clip = [ancestor convertRect:ancestor.bounds toView:label];
+        visible = CGRectIntersection(visible, clip);
+        if (CGRectIsNull(visible) || CGRectIsEmpty(visible)) return 0.0;
+    }
+    return floor(CGRectGetWidth(visible));
+}
+
+// CATextLayer is a sublayer of the existing UILabel, not a new UIView. The table/lyrics
+// focus handling and the host title/artist/album label order therefore remain untouched.
+@interface CLSongMarquee : NSObject
+@property (nonatomic, copy) NSString *role;
+- (void)updateForLabel:(UILabel *)label sourceText:(NSString *)sourceText;
+- (void)stop;
+@end
+
+@implementation CLSongMarquee {
+    __weak UILabel *_host;
+    CATextLayer *_textLayer;
+    UIColor *_originalColor;
+    BOOL _originalClips;
+    NSString *_lastText;
+    NSString *_lastFontName;
+    CGFloat _lastSize;
+    CGFloat _lastViewport;
+}
+
+- (void)stop {
+    [_textLayer removeAllAnimations];
+    [_textLayer removeFromSuperlayer];
+    _textLayer = nil;
+    UILabel *host = _host;
+    if (host) {
+        if (_originalColor) host.textColor = _originalColor;
+        host.clipsToBounds = _originalClips;
+    }
+    _host = nil;
+    _originalColor = nil;
+    _lastText = nil;
+    _lastFontName = nil;
+    _lastSize = 0.0;
+    _lastViewport = 0.0;
+}
+
+- (void)updateForLabel:(UILabel *)label sourceText:(NSString *)sourceText {
+    if (![label isKindOfClass:UILabel.class] || label.isHidden || label.text.length == 0 ||
+        !label.font || CGRectGetHeight(label.bounds) < 10.0) {
+        [self stop];
+        return;
+    }
+    NSString *text = CLMarqueeText(label.text, sourceText);
+    UIFont *font = label.font;
+    CGFloat viewport = CLMarqueeViewportWidth(label);
+    CGFloat textWidth = ceil([text sizeWithAttributes:@{NSFontAttributeName: font}].width);
+    if (viewport < 24.0 || textWidth <= viewport + 1.0) {
+        [self stop];
+        return;
+    }
+
+    BOOL unchanged = _host == label && _textLayer != nil &&
+        [text isEqualToString:_lastText] && [font.fontName isEqualToString:_lastFontName] &&
+        fabs(font.pointSize - _lastSize) < 0.1 &&
+        fabs(viewport - _lastViewport) < 0.5;
+    if (unchanged) {
+        // CarPlay can reset the label colour on its layout pass. Refresh the overlay colour,
+        // but never restart its animation just because the view was laid out again.
+        if (![label.textColor isEqual:UIColor.clearColor]) {
+            _originalColor = label.textColor ?: UIColor.labelColor;
+            _textLayer.foregroundColor = _originalColor.CGColor;
+            label.textColor = UIColor.clearColor;
+        }
+        return;
+    }
+
+    [self stop];
+    _host = label;
+    _originalColor = label.textColor ?: UIColor.labelColor;
+    _originalClips = label.clipsToBounds;
+    _lastText = [text copy];
+    _lastFontName = [font.fontName copy];
+    _lastSize = font.pointSize;
+    _lastViewport = viewport;
+
+    // A duplicated string and an interstitial gap form a *continuous loop*. It moves the
+    // full length of the song/artist text even when the original overflow was only 4pt.
+    NSString *gap = @"        ";
+    NSString *oneCopy = [text stringByAppendingString:gap];
+    NSString *looped = [oneCopy stringByAppendingString:text];
+    CGFloat distance = ceil([oneCopy sizeWithAttributes:@{NSFontAttributeName: font}].width);
+    CGFloat width = ceil([looped sizeWithAttributes:@{NSFontAttributeName: font}].width) + 6.0;
+
+    CATextLayer *layer = [CATextLayer layer];
+    layer.string = looped;
+    layer.font = (__bridge CFTypeRef)font.fontName;
+    layer.fontSize = font.pointSize;
+    layer.foregroundColor = _originalColor.CGColor;
+    layer.contentsScale = label.window.screen.scale > 0.0 ? label.window.screen.scale : UIScreen.mainScreen.scale;
+    layer.alignmentMode = kCAAlignmentLeft;
+    layer.truncationMode = kCATruncationNone;
+    layer.wrapped = NO;
+    layer.frame = CGRectMake(0.0, MAX(0.0, (CGRectGetHeight(label.bounds) - font.lineHeight) / 2.0),
+                             width, font.lineHeight + 4.0);
+    _textLayer = layer;
+    label.clipsToBounds = YES;
+    [label.layer addSublayer:layer];
+    label.textColor = UIColor.clearColor;
+
+    CABasicAnimation *animation = [CABasicAnimation animationWithKeyPath:@"position.x"];
+    animation.fromValue = @(layer.position.x);
+    animation.toValue = @(layer.position.x - distance);
+    animation.duration = MAX(8.0, distance / 18.0);  // calm, constant ~18pt/sec
+    animation.repeatCount = HUGE_VALF;
+    animation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+    animation.beginTime = [layer convertTime:CACurrentMediaTime() fromLayer:nil] + 0.4;
+    [layer addAnimation:animation forKey:@"cl-song-scroll"];
+    CLLogDebug(@"[ui] %@ marquee scrolling (viewport=%.0f text=%.0f loop=%.0f speed=18pt/s)",
+               self.role ?: @"label", viewport, textWidth, distance);
+}
+@end
+
 #pragma mark -
 
 @interface CLLayoutCustomizer () <CLLyricsPanelViewDelegate, CLLyricsFullScreenViewDelegate>
@@ -344,16 +488,9 @@ static BOOL sHostColumnHooksInstalled = NO;
     CGFloat _savedBackgroundAlpha;
     BOOL _savedBackgroundEffectHidden;
     BOOL _titleMarqueeRefreshQueued;
-    // A compositor-driven marquee on the host title UILabel, without adding another UILabel
-    // (the host's label-order inspection relies on title/artist/album indices remaining stable).
-    __weak UILabel *_marqueeTitleHost;
-    CATextLayer *_marqueeTextLayer;
-    UIColor *_marqueeOriginalColor;
-    BOOL _marqueeOriginalClips;
-    NSString *_marqueeLastText;
-    NSString *_marqueeLastFontName;
-    CGFloat _marqueeLastWidth;
-    CGFloat _marqueeLastFontSize;
+    // Both use the host's existing labels (no extra UIView/focus target).
+    CLSongMarquee *_titleMarquee;
+    CLSongMarquee *_artistMarquee;
     BOOL _hidingProgress;   // Progress Bar Hide is holding the host's bar hidden
     BOOL _tintStateSaved;
     UIColor *_savedProgressTintColor;
@@ -1575,43 +1712,15 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     _tintStateSaved = NO;
 }
 
-#pragma mark - Song title marquee
+#pragma mark - Song title and artist marquees
 
 - (void)cl_removeTitleMarquee {
-    [_marqueeTextLayer removeAllAnimations];
-    [_marqueeTextLayer removeFromSuperlayer];
-    _marqueeTextLayer = nil;
-    UILabel *host = _marqueeTitleHost;
-    if (host) {
-        if (_marqueeOriginalColor) host.textColor = _marqueeOriginalColor;
-        host.clipsToBounds = _marqueeOriginalClips;
-    }
-    _marqueeTitleHost = nil;
-    _marqueeOriginalColor = nil;
-    _marqueeLastText = nil;
-    _marqueeLastFontName = nil;
-    _marqueeLastWidth = 0;
-    _marqueeLastFontSize = 0;
+    [_titleMarquee stop];
+    [_artistMarquee stop];
 }
 
-// CarPlay may put an already shortened title (e.g. "Head…") in the host UILabel.
-// Use our full now-playing metadata when it matches the host's visible prefix, but never
-// replace a different app's or a previous track's title with stale metadata.
-static NSString *CLMarqueeText(NSString *hostText, NSString *sourceText) {
-    if (sourceText.length == 0 || hostText.length == 0) return hostText ?: @"";
-    if ([hostText isEqualToString:sourceText]) return sourceText;
-    NSString *prefix = hostText;
-    if ([prefix hasSuffix:@"..."]) prefix = [prefix substringToIndex:prefix.length - 3];
-    else if ([prefix hasSuffix:@"…"]) prefix = [prefix substringToIndex:prefix.length - 1];
-    prefix = [prefix stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-    if (prefix.length > 0 && sourceText.length > hostText.length &&
-        [sourceText rangeOfString:prefix options:(NSCaseInsensitiveSearch | NSAnchoredSearch)].location == 0) {
-        return sourceText;
-    }
-    return hostText;
-}
-
-// A deferred pass runs after the host has finished its own constraints / title updates.
+// The host recalculates these UILabels on its own schedule. A later pass reconciles the
+// full text and geometry; CLSongMarquee preserves the animation if nothing changed.
 - (void)cl_scheduleTitleMarqueeRefresh {
     if (_titleMarqueeRefreshQueued || !_attached || _paused || !_prefEnabled) return;
     _titleMarqueeRefreshQueued = YES;
@@ -1621,94 +1730,33 @@ static NSString *CLMarqueeText(NSString *hostText, NSString *sourceText) {
         if (!strongSelf) return;
         strongSelf->_titleMarqueeRefreshQueued = NO;
         if (strongSelf->_attached && !strongSelf->_paused && strongSelf->_prefEnabled) {
-            CLUISafePerform(@"deferred title marquee", ^{
+            CLUISafePerform(@"deferred song-detail marquee", ^{
                 [strongSelf cl_applyTitleMarquee];
             });
         }
     });
 }
 
-// Only animate a title that does not fit the portion of its host UILabel actually visible
-// in the song-details view. A CATextLayer cannot steal touch, focus, or layout constraints.
 - (void)cl_applyTitleMarquee {
-    UILabel *title = [self cl_songDetailsLabels].firstObject;
-    if (![title isKindOfClass:UILabel.class] || title.isHidden || !title.font ||
-        title.text.length == 0 || CGRectGetWidth(title.bounds) < 24.0 ||
-        CGRectGetHeight(title.bounds) < 10.0) {
+    NSArray<UILabel *> *labels = [self cl_songDetailsLabels];
+    if (labels.count == 0) {
         [self cl_removeTitleMarquee];
         return;
     }
-
-    UIFont *font = title.font;
-    NSString *hostText = title.text;
-    NSString *fullTitle = [CLLyricsController sharedController].currentState.title;
-    // If the host belongs to a different now-playing screen, trust that screen's own title.
-    NSString *value = [self cl_screenMatchesNowPlaying]
-        ? CLMarqueeText(hostText, fullTitle) : hostText;
-    CGFloat available = CGRectGetWidth(title.bounds);
-    if (_songDetailsView && title != _songDetailsView &&
-        CGRectGetWidth(_songDetailsView.bounds) > 0.0) {
-        CGRect visible = CGRectIntersection(
-            [title convertRect:title.bounds toView:_songDetailsView], _songDetailsView.bounds);
-        if (!CGRectIsNull(visible) && CGRectGetWidth(visible) >= 24.0) {
-            available = MIN(available, CGRectGetWidth(visible));
-        }
+    CLPlaybackState *state = CLLyricsController.sharedController.currentState;
+    BOOL sameApp = [self cl_screenMatchesNowPlaying];
+    if (!_titleMarquee) {
+        _titleMarquee = [CLSongMarquee new];
+        _titleMarquee.role = @"title";
     }
-
-    CGFloat length = ceil([value sizeWithAttributes:@{NSFontAttributeName: font}].width) + 4.0;
-    if (available < 24.0 || length <= available + 2.0) {
-        [self cl_removeTitleMarquee];
-        return;
+    if (!_artistMarquee) {
+        _artistMarquee = [CLSongMarquee new];
+        _artistMarquee.role = @"artist";
     }
-
-    BOOL same = (_marqueeTitleHost == title) && [value isEqualToString:_marqueeLastText] &&
-                [font.fontName isEqualToString:_marqueeLastFontName] &&
-                fabs(font.pointSize - _marqueeLastFontSize) < 0.1 &&
-                fabs(available - _marqueeLastWidth) < 0.5;
-    if (same && _marqueeTextLayer) {
-        if (![title.textColor isEqual:UIColor.clearColor]) title.textColor = UIColor.clearColor;
-        return;
-    }
-
-    [self cl_removeTitleMarquee];
-    _marqueeTitleHost = title;
-    _marqueeOriginalColor = title.textColor ?: UIColor.labelColor;
-    _marqueeOriginalClips = title.clipsToBounds;
-    _marqueeLastText = [value copy];
-    _marqueeLastFontName = [font.fontName copy];
-    _marqueeLastWidth = available;
-    _marqueeLastFontSize = font.pointSize;
-
-    CATextLayer *layer = [CATextLayer layer];
-    layer.string = value;
-    layer.font = (__bridge CFTypeRef)font.fontName;
-    layer.fontSize = font.pointSize;
-    layer.foregroundColor = _marqueeOriginalColor.CGColor;
-    layer.contentsScale = title.window.screen.scale > 0 ? title.window.screen.scale : UIScreen.mainScreen.scale;
-    layer.alignmentMode = kCAAlignmentLeft;
-    layer.truncationMode = kCATruncationNone;
-    layer.wrapped = NO;
-    layer.frame = CGRectMake(0.0, MAX(0.0, (CGRectGetHeight(title.bounds) - font.lineHeight) / 2.0),
-                             length, font.lineHeight + 4.0);
-    _marqueeTextLayer = layer;
-    title.clipsToBounds = YES;
-    [title.layer addSublayer:layer];
-    title.textColor = UIColor.clearColor;
-
-    // A straight, leisurely sweep, with a pause at each end. All motion is on Core Animation,
-    // not a main-thread timer, so lyrics can continue to render without competing for frames.
-    CAKeyframeAnimation *slide = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
-    slide.values = @[ @0.0, @0.0, @(-(length - available)), @(-(length - available)) ];
-    slide.keyTimes = @[ @0.0, @0.06, @0.94, @1.0 ];
-    slide.duration = MAX(10.0, (length - available) / 15.0 + 2.0);
-    slide.autoreverses = YES;
-    slide.repeatCount = HUGE_VALF;
-    slide.beginTime = [layer convertTime:CACurrentMediaTime() fromLayer:nil] + 0.25;
-    slide.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
-    [layer addAnimation:slide forKey:@"cl-title-marquee"];
-
-    CLLogDebug(@"[ui] title marquee active (host=%lu chars, full=%lu chars, visible=%.0f, text=%.0f)",
-               (unsigned long)hostText.length, (unsigned long)value.length, available, length);
+    UILabel *title = labels.firstObject;
+    UILabel *artist = labels.count >= 2 ? labels[1] : nil;
+    [_titleMarquee updateForLabel:title sourceText:sameApp ? state.title : nil];
+    [_artistMarquee updateForLabel:artist sourceText:sameApp ? state.artist : nil];
 }
 
 #pragma mark - Album label

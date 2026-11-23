@@ -17,6 +17,7 @@
 // domain by the runner scripts and deleted afterwards, and everything here writes whatever
 // CLPrefsActiveDomain() resolves to.
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
 #import "UI/CLLyricsFullScreenView.h"
 #import "UI/CLLyricsPanelView.h"
@@ -35,6 +36,68 @@ static int gPass = 0, gFail = 0;
 } while (0)
 
 static UIImage *TestArtworkForward(void);
+
+/// A marquee must visibly scroll even when the original text only overflows by a few points.
+/// The rendering is a CALayer within the stock UILabel, never an added focusable UIView.
+static void TestSongMarquees(void) {
+    Class cls = NSClassFromString(@"CLSongMarquee");
+    EXPECT(cls != Nil, "marquee helper class is linked into the UI harness");
+    if (!cls) return;
+    SEL update = NSSelectorFromString(@"updateForLabel:sourceText:");
+    SEL stop = NSSelectorFromString(@"stop");
+    id titleMarquee = [[cls alloc] init];
+    id artistMarquee = [[cls alloc] init];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0.0, 0.0, 70.0, 28.0)];
+    title.text = @"Head...";
+    title.font = [UIFont systemFontOfSize:16.0];
+    UIColor *original = title.textColor;
+    ((void (*)(id, SEL, UILabel *, NSString *))objc_msgSend)(
+        titleMarquee, update, title, @"Headlights");
+    CATextLayer *titleLayer = (CATextLayer *)title.layer.sublayers.lastObject;
+    BOOL titleHasLayer = [titleLayer isKindOfClass:CATextLayer.class];
+    EXPECT(titleHasLayer, "title marquee creates text layer for truncated title");
+    if (titleHasLayer) {
+        NSString *rendered = [titleLayer.string isKindOfClass:NSString.class] ? titleLayer.string : @"";
+        EXPECT([rendered componentsSeparatedByString:@"Headlights"].count == 3,
+               "title marquee includes two full song-title copies (not an ellipsis)");
+        CABasicAnimation *slide = (CABasicAnimation *)[titleLayer animationForKey:@"cl-song-scroll"];
+        EXPECT([slide isKindOfClass:CABasicAnimation.class], "title marquee has a running animation");
+        if ([slide isKindOfClass:CABasicAnimation.class]) {
+            CGFloat travel = [slide.fromValue doubleValue] - [slide.toValue doubleValue];
+            EXPECT(travel > 60.0, "title marquee traverses the entire title, not a 4pt overflow (%.1f)", travel);
+        }
+    }
+
+    // The visible portion can be narrower than the host UILabel's own bounds.
+    UIView *clip = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 60.0, 30.0)];
+    clip.clipsToBounds = YES;
+    UILabel *artist = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 240.0, 28.0)];
+    artist.font = [UIFont systemFontOfSize:16.0];
+    artist.text = @"Eminem,...";
+    [clip addSubview:artist];
+    ((void (*)(id, SEL, UILabel *, NSString *))objc_msgSend)(
+        artistMarquee, update, artist, @"Eminem, Dr. Dre, Rihanna");
+    CATextLayer *artistLayer = (CATextLayer *)artist.layer.sublayers.lastObject;
+    BOOL artistHasLayer = [artistLayer isKindOfClass:CATextLayer.class];
+    EXPECT(artistHasLayer, "artist marquee recognises clipping ancestor and starts scrolling");
+    if (artistHasLayer) {
+        NSString *rendered = [artistLayer.string isKindOfClass:NSString.class] ? artistLayer.string : @"";
+        EXPECT([rendered containsString:@"Eminem, Dr. Dre, Rihanna"],
+               "artist marquee uses the complete artist metadata");
+        EXPECT([artistLayer animationForKey:@"cl-song-scroll"] != nil,
+               "artist marquee animates separately from title");
+    }
+
+    ((void (*)(id, SEL))objc_msgSend)(titleMarquee, stop);
+    ((void (*)(id, SEL))objc_msgSend)(artistMarquee, stop);
+    EXPECT(title.layer.sublayers.count == 0 && [title.textColor isEqual:original],
+           "stopping marquee restores original title label");
+    EXPECT(artist.layer.sublayers.count == 0 && !artist.clipsToBounds,
+           "stopping marquee restores artist clipping and removes animation");
+}
+
+
 
 #pragma mark - Fake host
 
@@ -2041,6 +2104,7 @@ static void TestLegacyPrefs(void) {
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         ResetPrefs();
+        TestSongMarquees();
         TestPanel();
         TestNoteLinesAreGaps();
 
