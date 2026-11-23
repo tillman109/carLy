@@ -293,7 +293,7 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
 // This runs after layout (when compressed UILabel widths are known); the helper keeps
 // the same layer/animation while nothing changes, so playback ticks don't restart it.
 - (void)cl_updateSongMarquees {
-    if (_textStack.isHidden || !self.window) {
+    if (_textStack.isHidden) {
         [_titleMarquee stop];
         [_artistMarquee stop];
         return;
