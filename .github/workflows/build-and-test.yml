@@ -10,9 +10,16 @@ name: build and test
 # Nothing here touches the upstream publishing pipeline (publish.yml) or any signing key.
 # Download the package from the run's summary page: Actions > the run > Artifacts.
 
+# Check direct updates to main, and changes proposed to main, exactly once each.
+# Feature branches are tested through their PR; a push to an open PR must not also
+# launch a second macOS build through the push trigger.
 on:
   push:
+    branches:
+      - main
   pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
