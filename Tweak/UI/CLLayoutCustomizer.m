@@ -343,6 +343,7 @@ static BOOL sHostColumnHooksInstalled = NO;
     BOOL _savedBackgroundHidden;
     CGFloat _savedBackgroundAlpha;
     BOOL _savedBackgroundEffectHidden;
+    BOOL _titleMarqueeRefreshQueued;
     // A compositor-driven marquee on the host title UILabel, without adding another UILabel
     // (the host's label-order inspection relies on title/artist/album indices remaining stable).
     __weak UILabel *_marqueeTitleHost;
@@ -1593,8 +1594,42 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     _marqueeLastFontSize = 0;
 }
 
-// Only animate a title that doesn't fit its host UILabel. CATextLayer is a sublayer, not a
-// subview; it cannot steal touches/focus or change the title/artist/album view discovery.
+// CarPlay may put an already shortened title (e.g. "Head…") in the host UILabel.
+// Use our full now-playing metadata when it matches the host's visible prefix, but never
+// replace a different app's or a previous track's title with stale metadata.
+static NSString *CLMarqueeText(NSString *hostText, NSString *sourceText) {
+    if (sourceText.length == 0 || hostText.length == 0) return hostText ?: @"";
+    if ([hostText isEqualToString:sourceText]) return sourceText;
+    NSString *prefix = hostText;
+    if ([prefix hasSuffix:@"..."]) prefix = [prefix substringToIndex:prefix.length - 3];
+    else if ([prefix hasSuffix:@"…"]) prefix = [prefix substringToIndex:prefix.length - 1];
+    prefix = [prefix stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    if (prefix.length > 0 && sourceText.length > hostText.length &&
+        [sourceText rangeOfString:prefix options:(NSCaseInsensitiveSearch | NSAnchoredSearch)].location == 0) {
+        return sourceText;
+    }
+    return hostText;
+}
+
+// A deferred pass runs after the host has finished its own constraints / title updates.
+- (void)cl_scheduleTitleMarqueeRefresh {
+    if (_titleMarqueeRefreshQueued || !_attached || _paused || !_prefEnabled) return;
+    _titleMarqueeRefreshQueued = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_titleMarqueeRefreshQueued = NO;
+        if (strongSelf->_attached && !strongSelf->_paused && strongSelf->_prefEnabled) {
+            CLUISafePerform(@"deferred title marquee", ^{
+                [strongSelf cl_applyTitleMarquee];
+            });
+        }
+    });
+}
+
+// Only animate a title that does not fit the portion of its host UILabel actually visible
+// in the song-details view. A CATextLayer cannot steal touch, focus, or layout constraints.
 - (void)cl_applyTitleMarquee {
     UILabel *title = [self cl_songDetailsLabels].firstObject;
     if (![title isKindOfClass:UILabel.class] || title.isHidden || !title.font ||
@@ -1603,21 +1638,35 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
         [self cl_removeTitleMarquee];
         return;
     }
+
     UIFont *font = title.font;
-    NSString *value = title.text;
+    NSString *hostText = title.text;
+    NSString *fullTitle = [CLLyricsController sharedController].currentState.title;
+    // If the host belongs to a different now-playing screen, trust that screen's own title.
+    NSString *value = [self cl_screenMatchesNowPlaying]
+        ? CLMarqueeText(hostText, fullTitle) : hostText;
     CGFloat available = CGRectGetWidth(title.bounds);
+    if (_songDetailsView && title != _songDetailsView &&
+        CGRectGetWidth(_songDetailsView.bounds) > 0.0) {
+        CGRect visible = CGRectIntersection(
+            [title convertRect:title.bounds toView:_songDetailsView], _songDetailsView.bounds);
+        if (!CGRectIsNull(visible) && CGRectGetWidth(visible) >= 24.0) {
+            available = MIN(available, CGRectGetWidth(visible));
+        }
+    }
+
     CGFloat length = ceil([value sizeWithAttributes:@{NSFontAttributeName: font}].width) + 4.0;
-    if (length <= available + 2.0) {
+    if (available < 24.0 || length <= available + 2.0) {
         [self cl_removeTitleMarquee];
         return;
     }
+
     BOOL same = (_marqueeTitleHost == title) && [value isEqualToString:_marqueeLastText] &&
                 [font.fontName isEqualToString:_marqueeLastFontName] &&
                 fabs(font.pointSize - _marqueeLastFontSize) < 0.1 &&
                 fabs(available - _marqueeLastWidth) < 0.5;
     if (same && _marqueeTextLayer) {
-        // The host can restore text colour in its own layout pass; keep its original text hidden.
-        if (title.textColor != UIColor.clearColor) title.textColor = UIColor.clearColor;
+        if (![title.textColor isEqual:UIColor.clearColor]) title.textColor = UIColor.clearColor;
         return;
     }
 
@@ -1635,7 +1684,7 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     layer.font = (__bridge CFTypeRef)font.fontName;
     layer.fontSize = font.pointSize;
     layer.foregroundColor = _marqueeOriginalColor.CGColor;
-    layer.contentsScale = UIScreen.mainScreen.scale;
+    layer.contentsScale = title.window.screen.scale > 0 ? title.window.screen.scale : UIScreen.mainScreen.scale;
     layer.alignmentMode = kCAAlignmentLeft;
     layer.truncationMode = kCATruncationNone;
     layer.wrapped = NO;
@@ -1646,15 +1695,20 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     [title.layer addSublayer:layer];
     title.textColor = UIColor.clearColor;
 
-    CABasicAnimation *slide = [CABasicAnimation animationWithKeyPath:@"transform.translation.x"];
-    slide.fromValue = @0.0;
-    slide.toValue = @(-(length - available));
-    slide.duration = MAX(7.0, (length - available) / 18.0);  // ~18 points/second
+    // A straight, leisurely sweep, with a pause at each end. All motion is on Core Animation,
+    // not a main-thread timer, so lyrics can continue to render without competing for frames.
+    CAKeyframeAnimation *slide = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
+    slide.values = @[ @0.0, @0.0, @(-(length - available)), @(-(length - available)) ];
+    slide.keyTimes = @[ @0.0, @0.06, @0.94, @1.0 ];
+    slide.duration = MAX(10.0, (length - available) / 15.0 + 2.0);
     slide.autoreverses = YES;
     slide.repeatCount = HUGE_VALF;
-    slide.beginTime = CACurrentMediaTime() + 1.0;
-    slide.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    slide.beginTime = [layer convertTime:CACurrentMediaTime() fromLayer:nil] + 0.25;
+    slide.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
     [layer addAnimation:slide forKey:@"cl-title-marquee"];
+
+    CLLogDebug(@"[ui] title marquee active (host=%lu chars, full=%lu chars, visible=%.0f, text=%.0f)",
+               (unsigned long)hostText.length, (unsigned long)value.length, available, length);
 }
 
 #pragma mark - Album label
@@ -2013,6 +2067,7 @@ static BOOL CLHostLayoutOverridesEqual(CLHostLayoutOverride *a, CLHostLayoutOver
     CLLayoutCustomizer *customizer = [self customizerForViewController:viewController create:NO];
     [customizer cl_applyPlayerAreaSizeConstraints];
     [customizer cl_logHostLayoutIfChanged];
+    [customizer cl_scheduleTitleMarqueeRefresh];
 }
 
 /// One debug line whenever the host's layout choice changes: which layout class it picked, with or
