@@ -48,7 +48,16 @@ trap cleanup EXIT
 echo "== checking the settings plists =="
 python3 scripts/check-prefs-plists.py
 
-CC="xcrun --sdk iphonesimulator clang -target arm64-apple-ios15.0-simulator"   # the tweak's own deployment target (Makefile)
+# The standard macOS 15 Intel runner requires x86_64 simulator binaries; the
+# production tweak is still cross-compiled separately as arm64 + arm64e.
+# Keep the script useful on Apple Silicon development Macs as well.
+SIM_ARCH=$(uname -m)
+case "$SIM_ARCH" in
+    x86_64|arm64) ;;
+    *) echo "unsupported iOS Simulator host architecture: $SIM_ARCH" >&2; exit 1 ;;
+esac
+echo "== simulator binary architecture: $SIM_ARCH =="
+CC="xcrun --sdk iphonesimulator clang -target ${SIM_ARCH}-apple-ios15.0-simulator"
 CFLAGS="-fobjc-arc -Wall -Werror -Wno-unused-function -DCL_VERSION=\"test\" -ITweak -ITweak/Private"
 
 echo "== building cltests (iOS Simulator) =="

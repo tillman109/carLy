@@ -1,25 +1,10 @@
 name: build and test
 
-# Builds the tweak and runs both test suites on a GitHub macOS runner, so no Mac is needed.
-#   * test  runs scripts/test-mac.sh: cltests (pure logic) and the tests/ui harness, both inside an
-#           iOS Simulator.
-#   * build runs the repo's own tools/build-payload.sh (Xcode's clang, so the arm64e slice is
-#           correct) and tools/build-deb.sh, and uploads the .deb as an artifact.
-# They run in parallel, so a failing test never stops you getting a .deb to try.
-#
-# Nothing here touches the upstream publishing pipeline (publish.yml) or any signing key.
-# Download the package from the run's summary page: Actions > the run > Artifacts.
-
-# Check direct updates to main, and changes proposed to main, exactly once each.
-# Feature branches are tested through their PR; a push to an open PR must not also
-# launch a second macOS build through the push trigger.
+# One standard Intel macOS runner instead of two Apple Silicon runners.
+# Manually trigger from Actions > build and test > Run workflow, choosing the
+# feature branch. The DEB is uploaded before simulator tests, so failures
+# never prevent downloading an experimental build.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -30,29 +15,51 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # tools/theos.pin, fetched by the steps below. scripts/test-mac.sh reads $THEOS (default
-  # ~/theos); tools/build-payload.sh fetches its own copy when THEOS is unset.
   THEOS: ${{ github.workspace }}/.theos-toolchain
 
 jobs:
-  test:
-    runs-on: macos-15
+  build-and-test:
+    runs-on: macos-15-intel
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch the pinned Theos
-        run: |
-          PIN="$(tr -d '[:space:]' < tools/theos.pin)"
-          git init -q "$THEOS"
-          git -C "$THEOS" remote add origin https://github.com/theos/theos.git
-          git -C "$THEOS" fetch -q --depth 1 origin "$PIN"
-          git -C "$THEOS" checkout -q FETCH_HEAD
-          git -C "$THEOS" submodule update -q --init --recursive
+      - name: Install dpkg (for the .deb)
+        run: brew install dpkg
 
-      # scripts/test-mac.sh prefers an iOS 17 simulator (the phone runs 17.x). GitHub's macos-15
-      # image may only carry newer runtimes, so pick iOS 17 when there is one and otherwise the
-      # newest iPhone simulator, and say which in the log.
+      # build-payload.sh installs pinned Theos once, in .theos-toolchain.
+      # Unsetting THEOS here invokes its own CI bootstrap; the shared env
+      # remains set for the later test step on this SAME runner.
+      - name: Build the tweak (Xcode clang, arm64 + arm64e)
+        run: |
+          VERSION="$(awk '/^Version:/ { print $2; exit }' control)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          unset THEOS
+          tools/build-payload.sh "$VERSION"
+
+      - name: Assemble the .deb
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_PAGES: ${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        run: tools/build-deb.sh "dev${{ github.run_number }}"
+
+      - name: Show what was built
+        run: |
+          for deb in repo/debs/*.deb; do
+            dpkg-deb -I "$deb" | sed -n '1,14p'
+            dpkg-deb -c "$deb" | grep -E 'carLy\.dylib|carLy\.plist|carLyPrefs'
+          done
+
+      # Upload FIRST, so even if a simulator test fails we keep the .deb.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carLy-deb
+          path: repo/debs/*.deb
+          if-no-files-found: error
+
+      # Use an iOS 17 simulator if available; otherwise the latest iPhone.
+      # The Intel test script compiles x86_64 simulator binaries, while the
+      # production DEB remains arm64 + arm64e for iPhone.
       - name: Choose a simulator
         run: |
           python3 - <<'PY' >> "$GITHUB_ENV"
@@ -72,48 +79,10 @@ jobs:
           ios17 = [f for f in found if f[0][0] == 17]
           best = max(ios17 or found)
           print("simulator: iOS %d.%d, %s%s" % (best[0][0], best[0][1], best[2],
-                "" if ios17 else "  (no iOS 17 runtime on this runner; results may differ slightly from the phone)"),
+                "" if ios17 else "  (no iOS 17 runtime; results may differ from the phone)"),
                 file=sys.stderr)
           print("CARLY_SIM_UDID=" + best[1])
           PY
 
       - name: Run both test suites
         run: scripts/test-mac.sh
-
-  build:
-    runs-on: macos-15
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dpkg (for the .deb)
-        run: brew install dpkg
-
-      # THEOS is deliberately unset for this step: with CI set and THEOS unset,
-      # tools/build-payload.sh fetches the commit pinned in tools/theos.pin itself.
-      - name: Build the tweak (Xcode clang, arm64 + arm64e)
-        run: |
-          VERSION="$(awk '/^Version:/ { print $2; exit }' control)"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          unset THEOS
-          tools/build-payload.sh "$VERSION"
-
-      # The revision makes each run's package distinct (1.0.0-dev12) so it installs over the last.
-      - name: Assemble the .deb
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_PAGES: ${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
-        run: tools/build-deb.sh "dev${{ github.run_number }}"
-
-      - name: Show what was built
-        run: |
-          for deb in repo/debs/*.deb; do
-            dpkg-deb -I "$deb" | sed -n '1,14p'
-            dpkg-deb -c "$deb" | grep -E 'carLy\.dylib|carLy\.plist|carLyPrefs'
-          done
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: carLy-deb
-          path: repo/debs/*.deb
-          if-no-files-found: error
