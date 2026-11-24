@@ -222,7 +222,10 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 - (void)setCurrentLineIndex:(NSInteger)index animated:(BOOL)animated {
     CLUIRunOnMain(^{
         if (self->_tapSeekHoldActive) {
-            self->_tapSeekPendingIndex = index;
+            // During wireless transport latency, keep the *tapped* sentence as
+            // the release target. The sync engine may briefly report the
+            // preceding line when the usual negative wireless offset applies.
+            // Changing the pending row here would undo the user's selection.
             return;
         }
         if (index == self->_currentLineIndex) return;
