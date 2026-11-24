@@ -235,6 +235,7 @@ static void CLPrefsDarwinCallback(CFNotificationCenterRef center, void *observer
     resolved[CLPrefKeyLyricsWordEstimate] = @(CLPrefsBool(raw(CLPrefKeyLyricsWordEstimate), YES));
     resolved[CLPrefKeyLyricsKeepSungBright] = @(CLPrefsBool(raw(CLPrefKeyLyricsKeepSungBright), YES));
     resolved[CLPrefKeyLyricsTouchControls] = @(CLPrefsBool(raw(CLPrefKeyLyricsTouchControls), NO));
+    resolved[CLPrefKeyLyricsTapSeekWirelessDelay] = @(CLPrefsBool(raw(CLPrefKeyLyricsTapSeekWirelessDelay), YES));
     resolved[CLPrefKeyLyricsSnapBackSeconds] = @(CLClampDouble(CLPrefsDouble(raw(CLPrefKeyLyricsSnapBackSeconds), 3.0), 2.0, 5.0));
     resolved[CLPrefKeyLyricsShowPlainWhenUnsynced] = @(CLPrefsBool(raw(CLPrefKeyLyricsShowPlainWhenUnsynced), YES));
     resolved[CLPrefKeyLyricsOffsetMs] = @(CLPrefsInt(raw(CLPrefKeyLyricsOffsetMs), 0));
@@ -369,6 +370,7 @@ static void CLPrefsDarwinCallback(CFNotificationCenterRef center, void *observer
 - (BOOL)lyricsWordEstimate { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsWordEstimate] boolValue]; }
 - (BOOL)lyricsKeepSungBright { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsKeepSungBright] boolValue]; }
 - (BOOL)lyricsTouchControls { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsTouchControls] boolValue]; }
+- (BOOL)lyricsTapSeekWirelessDelay { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsTapSeekWirelessDelay] boolValue]; }
 - (double)lyricsSnapBackSeconds { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsSnapBackSeconds] doubleValue]; }
 - (BOOL)lyricsShowNoteOnGap { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsShowNoteOnGap] boolValue]; }
 - (NSInteger)lyricsBackground { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyLyricsBackground] integerValue]; }

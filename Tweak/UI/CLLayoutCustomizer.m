@@ -1325,7 +1325,10 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     // UIKit calls this straight from the touch handler, outside every hook.
     CLUISafePerform(@"panel tap", ^{
         CLLogDebug(@"[ui] lyrics panel tapped line %ld", (long)index);
-        [CLLyricsController.sharedController seekToLineAtIndex:index];
+        BOOL useWirelessDelay = CLPrefs.shared.lyricsTouchControls &&
+                                CLPrefs.shared.lyricsTapSeekWirelessDelay;
+        [CLLyricsController.sharedController seekToLineAtIndex:index
+                                                  useRawLyricTime:useWirelessDelay];
     });
 }
 

@@ -51,6 +51,9 @@ typedef void (^CLLyricsSyncLineChangedBlock)(NSInteger lineIndex);
 /// Playback position to seek to so that `index` becomes the current line (offset compensated).
 /// Returns -1 when the index is out of range.
 - (NSTimeInterval)playbackTimeForLineAtIndex:(NSInteger)index;
+/// Timestamp of the selected lyric without offset compensation. For wireless output,
+/// this preserves the very beginning of the selected sentence instead of seeking past it.
+- (NSTimeInterval)rawPlaybackTimeForLineAtIndex:(NSInteger)index;
 
 @end
 

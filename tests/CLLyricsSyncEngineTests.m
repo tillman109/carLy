@@ -81,10 +81,23 @@ static void CLTestPlaybackTimeForLineAtIndex(void) {
     CL_ASSERT_EQ((long)[engine playbackTimeForLineAtIndex:-1], (long)-1);
     CL_ASSERT_EQ((long)[engine playbackTimeForLineAtIndex:99], (long)-1);
 
+    CL_ASSERT_NEAR([engine rawPlaybackTimeForLineAtIndex:0], 1.0, 0.0005);
+    CL_ASSERT_NEAR([engine rawPlaybackTimeForLineAtIndex:3], 5.0, 0.0005);
+    CL_ASSERT_EQ((long)[engine rawPlaybackTimeForLineAtIndex:-1], (long)-1);
+    CL_ASSERT_EQ((long)[engine rawPlaybackTimeForLineAtIndex:99], (long)-1);
+
     engine.offset = 1.0;   // seeking must compensate the offset so the same line comes up again
     CL_ASSERT_NEAR([engine playbackTimeForLineAtIndex:0], 0.0, 0.0005);   // 1 - 1 = 0
     engine.offset = -1.0;
     CL_ASSERT_NEAR([engine playbackTimeForLineAtIndex:0], 2.0, 0.0005);  // 1 - (-1) = 2
+
+    // Exact timestamp must NOT be shifted or skip the start of the tapped sentence.
+    engine.offset = -0.122;
+    CL_ASSERT_NEAR([engine playbackTimeForLineAtIndex:3], 5.122, 0.0005);
+    CL_ASSERT_NEAR([engine rawPlaybackTimeForLineAtIndex:3], 5.0, 0.0005);
+    engine.offset = 0.122;
+    CL_ASSERT_NEAR([engine playbackTimeForLineAtIndex:3], 4.878, 0.0005);
+    CL_ASSERT_NEAR([engine rawPlaybackTimeForLineAtIndex:3], 5.0, 0.0005);
 }
 
 static CLPlaybackState *CLMakePausedState(NSTimeInterval elapsed, NSTimeInterval duration) {

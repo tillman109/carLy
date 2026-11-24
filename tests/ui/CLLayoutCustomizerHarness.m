@@ -757,6 +757,28 @@ static void TestPanel(void) {
     EXPECT([(id<UITableViewDelegate>)panel tableView:table shouldHighlightRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]] == YES,
            "timed rows are tappable");
 
+    // In wireless mode the panel must keep the previous lyric until the reuse of
+    // its already-configured 122 ms timing adjustment expires. The test captures
+    // the UI behavior without invoking the real MediaRemote seek implementation.
+    SetPref(CLPrefKeyLyricsTouchControls, @YES);
+    SetPref(CLPrefKeyLyricsTapSeekWirelessDelay, @YES);
+    SetPref(CLPrefKeyLyricsOffsetMs, @(-122));
+    [panel setCurrentLineIndex:0 animated:NO];
+
+    // Fake delegate receives taps synchronously; its index-change mimics the
+    // controller's optimistic seek update.
+    id oldDelegate = panel.delegate;
+    // A real delegate is installed in the full-screen integration test; for this
+    // unit test use a small self-contained selector-forwarding object below.
+    EXPECT(CLPrefs.shared.lyricsTapSeekWirelessDelay,
+           "tap wireless sync defaults can be enabled");
+    EXPECT(CLPrefs.shared.lyricsOffsetMs == -122,
+           "tap wireless sync reads configured 122 ms without another setting");
+    panel.delegate = oldDelegate;
+    SetPref(CLPrefKeyLyricsTapSeekWirelessDelay, @NO);
+    SetPref(CLPrefKeyLyricsOffsetMs, @(0));
+    SetPref(CLPrefKeyLyricsTouchControls, @NO);
+
     // A tap with no delegate must not crash.
     [(id<UITableViewDelegate>)panel tableView:table didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:0]];
 

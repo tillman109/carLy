@@ -111,6 +111,9 @@ typedef void (^CLLyricsControllerObserverBlock)(CLLyricsController *controller,
 /// Seeks playback so that `index` becomes the current line (no-op when the index is out of range
 /// or MediaRemote cannot seek).
 - (void)seekToLineAtIndex:(NSInteger)index;
+/// Wireless mode seeks to the lyric's raw timestamp, leaving the display delay to the
+/// lyrics panel. NO keeps the original offset-compensated seek behavior.
+- (void)seekToLineAtIndex:(NSInteger)index useRawLyricTime:(BOOL)useRawLyricTime;
 /// "These lyrics are wrong": re-runs the provider chain for the current track, bypassing the
 /// cache, and stores whatever comes back.
 - (void)reloadLyricsIgnoringCache;

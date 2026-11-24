@@ -196,6 +196,12 @@ static NSTimeInterval CLClamp(NSTimeInterval value, NSTimeInterval low, NSTimeIn
     return time > 0 ? time : 0;
 }
 
+- (NSTimeInterval)rawPlaybackTimeForLineAtIndex:(NSInteger)index {
+    NSArray<CLLyricLine *> *lines = _lines;
+    if (index < 0 || index >= (NSInteger)lines.count) return -1;
+    return MAX(0.0, lines[(NSUInteger)index].time);
+}
+
 #pragma mark - Timer
 
 - (BOOL)isRunning {

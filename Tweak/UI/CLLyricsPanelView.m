@@ -80,6 +80,11 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     NSInteger _lastPaintKey;
     BOOL _rowsAreTimed;              ///< synced lyrics: rows map 1:1 to lyrics.lines and can be tapped
     NSTimer *_resumeTimer;
+    // After tap-to-seek the audio command is sent immediately, but this display
+    // deliberately keeps its previous line until delayed wireless audio catches up.
+    NSTimer *_tapSeekTimer;
+    BOOL _tapSeekHoldActive;
+    NSInteger _tapSeekPendingIndex;
     CFAbsoluteTime _autoScrollBlockedUntil;
     BOOL _userIsDragging;
     UIPanGestureRecognizer *_touchPan;
@@ -102,6 +107,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 }
 
 - (void)dealloc {
+    [_tapSeekTimer invalidate];
     [_resumeTimer invalidate];
     _resumeTimer = nil;
     [_wordTimer invalidate];
@@ -112,6 +118,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 
 - (void)cl_commonInit {
     _currentLineIndex = -1;          // CLLyricsNoLine
+    _tapSeekPendingIndex = -1;
     _rows = @[];
     _rowWords = @[];
     _lastPaintRow = -1;
@@ -189,6 +196,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 - (void)setLyrics:(CLLyrics *)lyrics {
     CLUIRunOnMain(^{
         if (lyrics == self->_lyrics) return;
+        [self cl_cancelTapSeekHold];
         self->_lyrics = lyrics;
         self->_currentLineIndex = -1;
         self->_userIsDragging = NO;
@@ -213,6 +221,10 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 
 - (void)setCurrentLineIndex:(NSInteger)index animated:(BOOL)animated {
     CLUIRunOnMain(^{
+        if (self->_tapSeekHoldActive) {
+            self->_tapSeekPendingIndex = index;
+            return;
+        }
         if (index == self->_currentLineIndex) return;
         self->_currentLineIndex = index;
         if (!self->_rowsAreTimed) return;
@@ -235,6 +247,9 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
         CLPrefs *prefs = CLPrefs.shared;
         self->_snapBackSeconds = MAX(2.0, MIN(5.0, prefs.lyricsSnapBackSeconds));
         self.userInteractionEnabled = prefs.lyricsTouchControls;
+        if (!self.userInteractionEnabled || !prefs.lyricsTapSeekWirelessDelay) {
+            [self cl_cancelTapSeekHold];
+        }
         CLLogDebug(@"[ui] lyric touch controls %@ (timed=%d, rows=%lu, return=%.1fs)",
                    self.userInteractionEnabled ? @"enabled" : @"disabled",
                    self->_rowsAreTimed, (unsigned long)self->_rows.count, self->_snapBackSeconds);
@@ -294,6 +309,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 - (void)didMoveToWindow {
     [super didMoveToWindow];
     if (!self.window) {
+        [self cl_cancelTapSeekHold];
         [_resumeTimer invalidate];
         _resumeTimer = nil;
     }
@@ -578,6 +594,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 - (void)cl_wordTick {
     // A timer block has no handler above it: an exception here would abort CarPlayTemplateUIHost.
     CLUISafePerform(@"lyrics word tick", ^{
+        if (self->_tapSeekHoldActive) return; // keep previous lyrics static during wireless delay
         NSInteger row = self->_currentLineIndex;
         NSArray<CLLyricWord *> *words = [self cl_wordsForRow:row];
         CLLyricsPanelTimeProvider provider = self->_lyricTimeProvider;
@@ -650,6 +667,55 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     return cell;
 }
 
+#pragma mark - Wireless CarPlay tap-to-seek alignment
+
+- (void)cl_cancelTapSeekHold {
+    [_tapSeekTimer invalidate];
+    _tapSeekTimer = nil;
+    _tapSeekHoldActive = NO;
+    _tapSeekPendingIndex = -1;
+}
+
+/// Uses the timing preference for the *actual lyrics provider* (Spotify/Apple Music or other).
+/// Its magnitude is the delay in milliseconds: the sign still has its normal meaning for
+/// continuous playback synchronisation. Playback itself is never held.
+- (NSTimeInterval)cl_wirelessSeekDelay {
+    CLPrefs *prefs = CLPrefs.shared;
+    if (!prefs.lyricsTapSeekWirelessDelay || !prefs.lyricsTouchControls) return 0.0;
+    NSString *source = _lyrics.source ?: @"";
+    BOOL service = [source isEqualToString:@"spotify"] ||
+                   [source isEqualToString:@"spotify-cache"] ||
+                   [source isEqualToString:@"apple-music"];
+    NSInteger ms = service ? prefs.serviceLyricsOffsetMs : prefs.lyricsOffsetMs;
+    return MIN(2.0, fabs((double)ms) / 1000.0);
+}
+
+- (void)cl_holdLyricsAfterTappedSeek:(NSInteger)selectedRow {
+    [self cl_cancelTapSeekHold];
+    NSTimeInterval delay = [self cl_wirelessSeekDelay];
+    if (delay < 0.005) return;
+    _tapSeekHoldActive = YES;
+    _tapSeekPendingIndex = selectedRow;
+    CLLogDebug(@"[ui] tap-to-seek wireless sync: delaying lyric highlight %.0fms (line=%ld)",
+               delay * 1000.0, (long)selectedRow);
+
+    __weak typeof(self) weakSelf = self;
+    _tapSeekTimer = [NSTimer timerWithTimeInterval:delay repeats:NO block:^(NSTimer *timer) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf->_tapSeekHoldActive) return;
+        NSInteger target = strongSelf->_tapSeekPendingIndex;
+        [strongSelf cl_cancelTapSeekHold];
+        // Apply the latest playback line when available, or the tapped line if the
+        // MediaRemote response is still pending. Preserve exact line-start word timing.
+        if (target < 0) return;
+        [strongSelf setCurrentLineIndex:target animated:NO];
+        [strongSelf cl_scrollToCurrentLineAnimated:NO force:YES];
+        [strongSelf cl_restyleVisibleCells];
+        CLLogDebug(@"[ui] tap-to-seek lyric highlight released (line=%ld)", (long)target);
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_tapSeekTimer forMode:NSRunLoopCommonModes];
+}
+
 #pragma mark - UITableViewDelegate
 
 - (BOOL)tableView:(UITableView *)tableView canFocusRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -669,9 +735,11 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
         CLLyricsTextIsGap(_lyrics.lines[(NSUInteger)row].text)) return;
     id<CLLyricsPanelViewDelegate> delegate = self.delegate;
     if ([delegate respondsToSelector:@selector(lyricsPanel:didSelectLineAtIndex:)]) {
+        [self cl_holdLyricsAfterTappedSeek:row];
         [delegate lyricsPanel:self didSelectLineAtIndex:row];
     }
-    // The seek will produce a line change; let it re-centre immediately.
+    // Clear any prior pan-induced auto-scroll block. Wireless sync holds the
+    // highlight separately until the audio output has caught up.
     _autoScrollBlockedUntil = 0.0;
     [_resumeTimer invalidate];
     _resumeTimer = nil;

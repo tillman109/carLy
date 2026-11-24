@@ -607,10 +607,17 @@ static BOOL CLSameTitleAndArtist(CLTrack *a, CLTrack *b) {
 #pragma mark - Actions
 
 - (void)seekToLineAtIndex:(NSInteger)index {
+    [self seekToLineAtIndex:index useRawLyricTime:NO];
+}
+
+- (void)seekToLineAtIndex:(NSInteger)index useRawLyricTime:(BOOL)useRawLyricTime {
     CLControllerRunOnMain(^{
-        NSTimeInterval time = [self->_syncEngine playbackTimeForLineAtIndex:index];
+        NSTimeInterval time = useRawLyricTime
+            ? [self->_syncEngine rawPlaybackTimeForLineAtIndex:index]
+            : [self->_syncEngine playbackTimeForLineAtIndex:index];
         if (time < 0) return;
-        CLLogInfo(@"Seeking to line %ld (%.2fs)", (long)index, time);
+        CLLogInfo(@"Seeking to line %ld (%.3fs, %@)",
+                  (long)index, time, useRawLyricTime ? @"wireless: exact line start" : @"offset compensated");
         [CLNowPlayingSource.sharedSource seekToTime:time];
 
         // Move our own clock straight away so the UI does not wait for the round trip.

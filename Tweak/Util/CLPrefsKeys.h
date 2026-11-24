@@ -56,6 +56,7 @@
 // | lyricsWordEstimate            | bool            | YES                                           | For line-timed lyrics, estimate word timings. |
 // | lyricsKeepSungBright          | bool            | YES                                           | Previously sung lines stay at the current line's colour. |
 // | lyricsTouchControls           | bool            | NO                                            | Opt-in touch scroll/seek; keep disabled for rotary-focus safety. |
+// | lyricsTapSeekWirelessDelay    | bool            | YES                                           | Use active source timing offset magnitude to delay lyric highlight after tap-seek; seek to raw lyric timestamp. |
 // | lyricsSnapBackSeconds         | float           | 3                                             | Wait 2-5 seconds after touch-scrolling before auto-follow resumes. |
 // | lyricsShowPlainWhenUnsynced   | bool            | YES                                           | Show plain (unsynced) lyrics as static text when no LRC is available. |
 // | lyricsOffsetMs                | int             | 0                                             | Manual sync offset in milliseconds, added to the computed elapsed time — so a positive value makes lines appear *earlier* and a negative one delays them (the LRC `[offset:]` convention, see CLLyricsSyncEngine.h and Lyrics.plist's footer). |
@@ -110,6 +111,7 @@
 #define CLPrefKeyLyricsWordEstimate          (@"lyricsWordEstimate")
 #define CLPrefKeyLyricsKeepSungBright        (@"lyricsKeepSungBright")
 #define CLPrefKeyLyricsTouchControls         (@"lyricsTouchControls")
+#define CLPrefKeyLyricsTapSeekWirelessDelay  (@"lyricsTapSeekWirelessDelay")
 #define CLPrefKeyLyricsSnapBackSeconds       (@"lyricsSnapBackSeconds")
 #define CLPrefKeyLyricsShowPlainWhenUnsynced (@"lyricsShowPlainWhenUnsynced")
 #define CLPrefKeyLyricsOffsetMs              (@"lyricsOffsetMs")

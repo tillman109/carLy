@@ -80,6 +80,7 @@ NSString *CLPrefsActiveDomain(void);
 @property (nonatomic, readonly) BOOL lyricsWordEstimate;            // ...also for lyrics timed per line only
 @property (nonatomic, readonly) BOOL lyricsKeepSungBright;        // show previous lines using current colour
 @property (nonatomic, readonly) BOOL lyricsTouchControls;         // opt-in touch gestures on the panel
+@property (nonatomic, readonly) BOOL lyricsTapSeekWirelessDelay;    // reuse current lyric-source timing offset after tap
 @property (nonatomic, readonly) double lyricsSnapBackSeconds;     // 2...5 seconds, default 3
 @property (nonatomic, readonly) BOOL lyricsShowPlainWhenUnsynced;
 @property (nonatomic, readonly) NSInteger lyricsOffsetMs;            // LRCLIB, custom, embedded
