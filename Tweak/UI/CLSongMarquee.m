@@ -34,13 +34,28 @@ static CGFloat CLMarqueeViewportWidth(UILabel *label) {
     return floor(CGRectGetWidth(visible));
 }
 
-// CATextLayer is a sublayer of the existing UILabel, not a new UIView. The table/lyrics
-// focus handling and the host title/artist/album label order therefore remain untouched.
-
+// Render with UIKit's UIFont instead of passing font.fontName to CATextLayer.font.
+// Private system font names (e.g. Apple's San Francisco UI fonts) can silently
+// resolve to a generic serif font in CATextLayer. A cached transparent bitmap
+// preserves the exact weight, glyphs, antialiasing and color of the stock UILabel.
+// It remains a CALayer (not a focusable UIView) and scrolls via Core Animation.
+static UIImage *CLMarqueeImage(NSString *text, UIFont *font, UIColor *color,
+                               CGSize size, CGFloat scale) {
+    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
+    format.opaque = NO;
+    format.scale = MAX(1.0, scale);
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size
+                                                                              format:format];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        CGFloat top = MAX(0.0, (size.height - font.lineHeight) / 2.0);
+        [text drawAtPoint:CGPointMake(0.0, top)
+          withAttributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: color }];
+    }];
+}
 
 @implementation CLSongMarquee {
     __weak UILabel *_host;
-    CATextLayer *_textLayer;
+    CALayer *_textLayer;
     UIColor *_originalColor;
     BOOL _originalClips;
     NSString *_lastText;
@@ -64,6 +79,15 @@ static CGFloat CLMarqueeViewportWidth(UILabel *label) {
     _lastFontName = nil;
     _lastSize = 0.0;
     _lastViewport = 0.0;
+}
+
+- (void)cl_updateImageWithText:(NSString *)text font:(UIFont *)font color:(UIColor *)color {
+    if (!_textLayer || text.length == 0 || !font || !color) return;
+    CGSize size = _textLayer.bounds.size;
+    CGFloat scale = _host.window.screen.scale > 0.0 ? _host.window.screen.scale : UIScreen.mainScreen.scale;
+    UIImage *image = CLMarqueeImage(text, font, color, size, scale);
+    _textLayer.contents = (__bridge id)image.CGImage;
+    _textLayer.contentsScale = MAX(1.0, scale);
 }
 
 - (void)updateForLabel:(UILabel *)label sourceText:(NSString *)sourceText {
@@ -90,7 +114,8 @@ static CGFloat CLMarqueeViewportWidth(UILabel *label) {
         // but never restart its animation just because the view was laid out again.
         if (![label.textColor isEqual:UIColor.clearColor]) {
             _originalColor = label.textColor ?: UIColor.labelColor;
-            _textLayer.foregroundColor = _originalColor.CGColor;
+            NSString *loop = [NSString stringWithFormat:@"%@        %@", text, text];
+            [self cl_updateImageWithText:loop font:font color:_originalColor];
             label.textColor = UIColor.clearColor;
         }
         return;
@@ -113,18 +138,12 @@ static CGFloat CLMarqueeViewportWidth(UILabel *label) {
     CGFloat distance = ceil([oneCopy sizeWithAttributes:@{NSFontAttributeName: font}].width);
     CGFloat width = ceil([looped sizeWithAttributes:@{NSFontAttributeName: font}].width) + 6.0;
 
-    CATextLayer *layer = [CATextLayer layer];
-    layer.string = looped;
-    layer.font = (__bridge CFTypeRef)font.fontName;
-    layer.fontSize = font.pointSize;
-    layer.foregroundColor = _originalColor.CGColor;
-    layer.contentsScale = label.window.screen.scale > 0.0 ? label.window.screen.scale : UIScreen.mainScreen.scale;
-    layer.alignmentMode = kCAAlignmentLeft;
-    layer.truncationMode = kCATruncationNone;
-    layer.wrapped = NO;
-    layer.frame = CGRectMake(0.0, MAX(0.0, (CGRectGetHeight(label.bounds) - font.lineHeight) / 2.0),
-                             width, font.lineHeight + 4.0);
+    CALayer *layer = [CALayer layer];
+    layer.name = @"carLy-system-font-marquee";
+    layer.frame = CGRectMake(0.0, 0.0, width, CGRectGetHeight(label.bounds));
+    layer.contentsGravity = kCAGravityTopLeft;
     _textLayer = layer;
+    [self cl_updateImageWithText:looped font:font color:_originalColor];
     label.clipsToBounds = YES;
     [label.layer addSublayer:layer];
     label.textColor = UIColor.clearColor;

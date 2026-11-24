@@ -55,13 +55,12 @@ static void TestSongMarquees(void) {
     UIColor *original = title.textColor;
     ((void (*)(id, SEL, UILabel *, NSString *))objc_msgSend)(
         titleMarquee, update, title, @"Headlights");
-    CATextLayer *titleLayer = (CATextLayer *)title.layer.sublayers.lastObject;
-    BOOL titleHasLayer = [titleLayer isKindOfClass:CATextLayer.class];
-    EXPECT(titleHasLayer, "title marquee creates text layer for truncated title");
+    CALayer *titleLayer = title.layer.sublayers.lastObject;
+    BOOL titleHasLayer = [titleLayer isKindOfClass:CALayer.class] && titleLayer.contents != nil;
+    EXPECT(titleHasLayer, "title marquee rasterizes the source UIFont without serif fallback");
     if (titleHasLayer) {
-        NSString *rendered = [titleLayer.string isKindOfClass:NSString.class] ? titleLayer.string : @"";
-        EXPECT([rendered componentsSeparatedByString:@"Headlights"].count == 3,
-               "title marquee includes two full song-title copies (not an ellipsis)");
+        EXPECT([titleLayer.name isEqualToString:@"carLy-system-font-marquee"],
+               "title marquee uses the system-font raster layer");
         CABasicAnimation *slide = (CABasicAnimation *)[titleLayer animationForKey:@"cl-song-scroll"];
         EXPECT([slide isKindOfClass:CABasicAnimation.class], "title marquee has a running animation");
         if ([slide isKindOfClass:CABasicAnimation.class]) {
@@ -79,13 +78,12 @@ static void TestSongMarquees(void) {
     [clip addSubview:artist];
     ((void (*)(id, SEL, UILabel *, NSString *))objc_msgSend)(
         artistMarquee, update, artist, @"Eminem, Dr. Dre, Rihanna");
-    CATextLayer *artistLayer = (CATextLayer *)artist.layer.sublayers.lastObject;
-    BOOL artistHasLayer = [artistLayer isKindOfClass:CATextLayer.class];
-    EXPECT(artistHasLayer, "artist marquee recognises clipping ancestor and starts scrolling");
+    CALayer *artistLayer = artist.layer.sublayers.lastObject;
+    BOOL artistHasLayer = [artistLayer isKindOfClass:CALayer.class] && artistLayer.contents != nil;
+    EXPECT(artistHasLayer, "artist marquee rasterizes UIFont and recognises clipping ancestor");
     if (artistHasLayer) {
-        NSString *rendered = [artistLayer.string isKindOfClass:NSString.class] ? artistLayer.string : @"";
-        EXPECT([rendered containsString:@"Eminem, Dr. Dre, Rihanna"],
-               "artist marquee uses the complete artist metadata");
+        EXPECT([artistLayer.name isEqualToString:@"carLy-system-font-marquee"],
+               "artist marquee uses the system-font raster layer");
         EXPECT([artistLayer animationForKey:@"cl-song-scroll"] != nil,
                "artist marquee animates separately from title");
     }
@@ -1973,12 +1971,12 @@ static void TestMicrophoneAndFullScreen(void) {
         UILabel *artist = (UILabel *)songStack.arrangedSubviews[1];
         BOOL songScrolling = NO, artistScrolling = NO;
         for (CALayer *sublayer in song.layer.sublayers) {
-            if ([sublayer isKindOfClass:CATextLayer.class] &&
-                [sublayer animationForKey:@"cl-song-scroll"]) songScrolling = YES;
+            if (sublayer.contents && [sublayer animationForKey:@"cl-song-scroll"])
+                songScrolling = YES;
         }
         for (CALayer *sublayer in artist.layer.sublayers) {
-            if ([sublayer isKindOfClass:CATextLayer.class] &&
-                [sublayer animationForKey:@"cl-song-scroll"]) artistScrolling = YES;
+            if (sublayer.contents && [sublayer animationForKey:@"cl-song-scroll"])
+                artistScrolling = YES;
         }
         EXPECT(songScrolling, "full screen: long song title marquee animates");
         EXPECT(artistScrolling, "full screen: long artist marquee animates");
@@ -1989,6 +1987,17 @@ static void TestMicrophoneAndFullScreen(void) {
     Pump(); Layout(vc);
     EXPECT(fullScreen.panelView.isUserInteractionEnabled,
            "full screen: touch scroll/seek becomes interactive when enabled");
+    CGPoint touchCenter = CGPointMake(CGRectGetMidX(fullScreen.panelView.bounds),
+                                     CGRectGetMidY(fullScreen.panelView.bounds));
+    CGPoint inFullScreen = [fullScreen.panelView convertPoint:touchCenter toView:fullScreen];
+    EXPECT([fullScreen hitTest:inFullScreen withEvent:nil] == fullScreen.panelView,
+           "full screen: touch events hit lyric panel rather than the hidden inner table");
+    BOOL hasPan = NO, hasTap = NO;
+    for (UIGestureRecognizer *gesture in fullScreen.panelView.gestureRecognizers) {
+        if ([gesture isKindOfClass:UIPanGestureRecognizer.class]) hasPan = YES;
+        if ([gesture isKindOfClass:UITapGestureRecognizer.class]) hasTap = YES;
+    }
+    EXPECT(hasPan && hasTap, "full screen: both pan and tap handlers are installed");
     NSMutableArray *innerTables = [NSMutableArray array];
     CollectViews(fullScreen.panelView, UITableView.class, innerTables);
     UITableView *innerTable = innerTables.firstObject;

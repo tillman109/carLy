@@ -235,6 +235,9 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
         CLPrefs *prefs = CLPrefs.shared;
         self->_snapBackSeconds = MAX(2.0, MIN(5.0, prefs.lyricsSnapBackSeconds));
         self.userInteractionEnabled = prefs.lyricsTouchControls;
+        CLLogDebug(@"[ui] lyric touch controls %@ (timed=%d, rows=%lu, return=%.1fs)",
+                   self.userInteractionEnabled ? @"enabled" : @"disabled",
+                   self->_rowsAreTimed, (unsigned long)self->_rows.count, self->_snapBackSeconds);
         if (!self.userInteractionEnabled) {
             self->_userIsDragging = NO;
             self->_autoScrollBlockedUntil = 0.0;
@@ -690,6 +693,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     if (!self.userInteractionEnabled || !_rowsAreTimed) return;
     switch (gesture.state) {
         case UIGestureRecognizerStateBegan:
+            CLLogDebug(@"[ui] lyric touch pan began (rows=%lu)", (unsigned long)_rows.count);
             _userIsDragging = YES;
             [_resumeTimer invalidate];
             _resumeTimer = nil;
@@ -710,6 +714,8 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
         case UIGestureRecognizerStateFailed:
             _userIsDragging = NO;
             [self cl_suspendAutoScroll];
+            CLLogDebug(@"[ui] lyric touch pan ended (offset=%.1f, return=%.1fs)",
+                       _tableView.contentOffset.y, _snapBackSeconds);
             break;
         default:
             break;
@@ -720,6 +726,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     if (gesture.state != UIGestureRecognizerStateRecognized ||
         !self.userInteractionEnabled || !_rowsAreTimed) return;
     NSIndexPath *index = [_tableView indexPathForRowAtPoint:[gesture locationInView:_tableView]];
+    CLLogDebug(@"[ui] lyric touch tap recognized (row=%ld)", (long)(index ? index.row : -1));
     if (!index) return;
     [self tableView:_tableView didSelectRowAtIndexPath:index];
 }
