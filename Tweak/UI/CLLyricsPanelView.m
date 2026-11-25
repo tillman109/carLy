@@ -1,4 +1,5 @@
 #import "UI/CLLyricsPanelView.h"
+#import <QuartzCore/QuartzCore.h>
 #import "UI/CLLayoutGeometry.h"
 #import "UI/CLLyricsStyle.h"
 #import "Lyrics/CLWordTiming.h"
@@ -9,6 +10,7 @@ const NSTimeInterval CLLyricsPanelAutoScrollPause = 3.0;
 
 static NSString *const CLLyricsPanelCellIdentifier = @"CLLyricsPanelCell";
 static const NSInteger CLLyricsPanelLabelTag = 9101;
+static NSString *const CLLyricsTapSeekPulseKey = @"cl-wireless-seek-pulse";
 /// Space above and below each lyric line (so 2x between two lines), and the height of a blank
 /// stanza-break row.
 static const CGFloat CLLyricsPanelRowPadding = 4.0;
@@ -85,6 +87,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     NSTimer *_tapSeekTimer;
     BOOL _tapSeekHoldActive;
     NSInteger _tapSeekPendingIndex;
+    NSTimeInterval _tapSeekPulseHalfCycle;
     CFAbsoluteTime _autoScrollBlockedUntil;
     BOOL _userIsDragging;
     UIPanGestureRecognizer *_touchPan;
@@ -473,6 +476,26 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
         label.textColor = dimmed ? _style.nextColor : _style.currentColor;
     }
 
+    // Only the selected sentence softly breathes while its wireless karaoke
+    // delay is pending. Core Animation changes appearance only, not text
+    // colour, timing, row height, hit-testing or CarPlay rotary focus.
+    BOOL shouldPulse = isCurrent && _tapSeekHoldActive && !UIAccessibilityIsReduceMotionEnabled();
+    if (shouldPulse) {
+        if (![label.layer animationForKey:CLLyricsTapSeekPulseKey]) {
+            CABasicAnimation *pulse = [CABasicAnimation animationWithKeyPath:@"opacity"];
+            pulse.fromValue = @1.0;
+            pulse.toValue = @0.68;     // legible even at the dimmest point
+            pulse.duration = _tapSeekPulseHalfCycle;
+            pulse.autoreverses = YES;
+            pulse.repeatCount = HUGE_VALF;
+            pulse.removedOnCompletion = YES;
+            pulse.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+            [label.layer addAnimation:pulse forKey:CLLyricsTapSeekPulseKey];
+        }
+    } else if ([label.layer animationForKey:CLLyricsTapSeekPulseKey]) {
+        [label.layer removeAnimationForKey:CLLyricsTapSeekPulseKey];
+    }
+
     // A blank row is a stanza break (or a gap marker with the note glyph turned off): it keeps its
     // place in the list with a little air, not a full line's height.
     CGFloat minimumHeight = (text.length == 0) ? CLLyricsPanelBlankRowHeight : 0.0;
@@ -679,6 +702,16 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     _tapSeekTimer = nil;
     _tapSeekHoldActive = NO;
     _tapSeekPendingIndex = -1;
+    _tapSeekPulseHalfCycle = 0.0;
+
+    // Stop the visual indicator immediately (even if the lyrics are about to
+    // change or the control was switched off). Reused cells also clear it in
+    // cl_configureCell:, so nothing can keep pulsing after the hold ends.
+    for (NSIndexPath *path in _tableView.indexPathsForVisibleRows) {
+        UITableViewCell *cell = [_tableView cellForRowAtIndexPath:path];
+        UIView *label = [cell.contentView viewWithTag:CLLyricsPanelLabelTag];
+        [label.layer removeAnimationForKey:CLLyricsTapSeekPulseKey];
+    }
 }
 
 /// Uses the timing preference for the *actual lyrics provider* (Spotify/Apple Music or other).
@@ -704,6 +737,9 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
         // entire selected sentence bright rather than starting the word sweep.
         _tapSeekHoldActive = YES;
         _tapSeekPendingIndex = selectedRow;
+        // A short 122ms delay can only show part of a gentle pulse, not a
+        // complete slow flash. Longer delays naturally show repeated pulses.
+        _tapSeekPulseHalfCycle = MAX(0.20, MIN(0.45, delay / 2.0));
     }
 
     // Selecting a lyric must feel instant even over wireless CarPlay.
@@ -715,7 +751,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     [self cl_scrollToCurrentLineAnimated:NO force:YES];
 
     if (delay < 0.005) return; // wired/zero-offset: normal immediate karaoke
-    CLLogDebug(@"[ui] tap-to-seek: line %ld lit immediately, word sweep waits %.0fms",
+    CLLogDebug(@"[ui] tap-to-seek: line %ld lit immediately with soft pulse, word sweep waits %.0fms",
                (long)selectedRow, delay * 1000.0);
 
     __weak typeof(self) weakSelf = self;
