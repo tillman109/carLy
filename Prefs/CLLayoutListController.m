@@ -13,8 +13,6 @@ static NSString *const kCLCornerRadiusRowID = @"artworkCornerRadius";
 static NSString *const kCLCornerRadiusAnchorID = @"progressBarStyle";
 static NSString *const kCLBackdropOpacityRowID = @"backdropOpacity";
 static NSString *const kCLBackdropOpacityAnchorID = @"backdropStyle";
-static NSString *const kCLAccentColorRowID = @"accentColor";
-static NSString *const kCLAccentColorAnchorID = @"tintFromArtwork";
 
 @interface CLLayoutListController ()
 @property (nonatomic, strong) CLLayoutPreviewHeaderView *header;
@@ -48,7 +46,6 @@ static NSString *const kCLAccentColorAnchorID = @"tintFromArtwork";
         if (!_allSpecifiers) {
             _allSpecifiers = [[self loadSpecifiersFromPlistName:@"Layout" target:self] copy];
         }
-        [self cl_refreshColorRowTitle:[self cl_declaredSpecifierWithID:kCLAccentColorRowID]];
         NSMutableArray *visible = [NSMutableArray arrayWithCapacity:_allSpecifiers.count];
         for (PSSpecifier *specifier in _allSpecifiers) {
             NSString *identifier = specifier.identifier;
@@ -84,18 +81,14 @@ static NSString *const kCLAccentColorAnchorID = @"tintFromArtwork";
     if ([identifier isEqualToString:kCLBackdropOpacityRowID]) {
         return [self cl_stagedIntegerForKey:CLPrefKeyBackdropStyle] == 1;      // Plain
     }
-    if ([identifier isEqualToString:kCLAccentColorRowID]) {
-        return [self cl_stagedBoolForKey:CLPrefKeyTintFromArtwork];
-    }
     return NO;
 }
 
-/// Inserts or removes the three dependent rows so the table matches the staged values, without
+/// Inserts or removes the two dependent rows so the table matches the staged values, without
 /// rebuilding `_specifiers`.
 - (void)cl_updateRowVisibilityAnimated:(BOOL)animated {
     NSArray<NSArray<NSString *> *> *rows = @[ @[ kCLCornerRadiusRowID, kCLCornerRadiusAnchorID ],
-                                              @[ kCLBackdropOpacityRowID, kCLBackdropOpacityAnchorID ],
-                                              @[ kCLAccentColorRowID, kCLAccentColorAnchorID ] ];
+                                              @[ kCLBackdropOpacityRowID, kCLBackdropOpacityAnchorID ] ];
     for (NSArray<NSString *> *pair in rows) {
         NSString *rowID = pair[0], *anchorID = pair[1];
         PSSpecifier *row = [self cl_declaredSpecifierWithID:rowID];
@@ -140,11 +133,6 @@ static NSString *const kCLAccentColorAnchorID = @"tintFromArtwork";
     return [value isKindOfClass:NSNumber.class] ? [(NSNumber *)value integerValue] : def;
 }
 
-- (BOOL)cl_stagedBoolForKey:(NSString *)key {
-    id value = [self cl_stagedOrCommittedValueForKey:key default:@NO];
-    return [value isKindOfClass:NSNumber.class] && [(NSNumber *)value boolValue];
-}
-
 /// Every control on this page reads through here: the staged value wins over the stored one.
 - (id)readPreferenceValue:(PSSpecifier *)specifier {
     NSString *key = [specifier propertyForKey:PSKeyNameKey];
@@ -157,19 +145,11 @@ static NSString *const kCLAccentColorAnchorID = @"tintFromArtwork";
     return [super readPreferenceValue:specifier];
 }
 
-/// ...and writes through here: nothing reaches CFPreferences or the car until Apply. The colour
-/// picker calls the specifier's setter, so it lands here too.
+/// ...and writes through here: nothing reaches CFPreferences or the car until Apply.
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     NSString *key = [specifier propertyForKey:PSKeyNameKey];
     if (key.length == 0) return;
     [self cl_stageValue:value forKey:key default:[specifier propertyForKey:PSDefaultValueKey]];
-    if ([specifier.identifier isEqualToString:kCLAccentColorRowID]) [self cl_refreshAccentRow];
-}
-
-/// The Accent Color row's value text follows the staged value.
-- (void)cl_refreshAccentRow {
-    [self cl_refreshColorRowTitle:[self cl_declaredSpecifierWithID:kCLAccentColorRowID]];
-    if ([self specifierForID:kCLAccentColorRowID]) [self reloadSpecifierID:kCLAccentColorRowID animated:NO];
 }
 
 - (void)cl_stageValue:(id)value forKey:(NSString *)key default:(id)def {
@@ -253,9 +233,7 @@ static NSString *const kCLAccentColorAnchorID = @"tintFromArtwork";
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    // The Lyrics page (font, colours) may have changed underneath us, and the colour picker
-    // has just staged the accent.
-    [self cl_refreshAccentRow];
+    // The Lyrics page (font, colours) may have changed underneath us.
     [self cl_refreshPreview];
 }
 

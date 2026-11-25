@@ -13,8 +13,6 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) double artworkCornerRadius;
 @property (nonatomic) NSInteger backdropStyle;
 @property (nonatomic) double backdropOpacity;
-@property (nonatomic) BOOL tintFromArtwork;
-@property (nonatomic, copy) NSString *accentColorHex;
 @property (nonatomic) BOOL showAlbum;
 @property (nonatomic) NSInteger progressBarStyle;      ///< 0 show, 2 hide (a stored 1 reads as 0)
 @property (nonatomic) BOOL hidePlaybackRateButton;

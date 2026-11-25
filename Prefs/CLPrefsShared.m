@@ -118,7 +118,7 @@
             CLPrefKeyLyricsBackgroundColor, CLPrefKeyLyricsBackgroundAlpha,
             // Layout
             CLPrefKeyArtworkCornerRadius, CLPrefKeyBackdropStyle,
-            CLPrefKeyBackdropOpacity, CLPrefKeyTintFromArtwork, CLPrefKeyAccentColor,
+            CLPrefKeyBackdropOpacity,
             CLPrefKeyShowAlbum, CLPrefKeyProgressBarStyle, CLPrefKeyHidePlaybackRateButton,
             CLPrefKeyHideQueueButton, CLPrefKeyShowLyricsButton, CLPrefKeyLyricsSide,
             // Sources
@@ -135,7 +135,8 @@
 + (NSArray<NSString *> *)legacyKeys {
     // Plain strings on purpose: CLPrefsKeys.h no longer defines these (0.5.0 removed them), and
     // this list is the only place they still exist.
-    return @[ @"lyricsPosition", @"lyricsMaxLines", @"artworkScale", @"titleFontSize", @"compactMode", @"hideAppBadge" ];
+    return @[ @"lyricsPosition", @"lyricsMaxLines", @"artworkScale", @"titleFontSize", @"compactMode", @"hideAppBadge",
+              @"tintFromArtwork", @"accentColor" ];
 }
 
 @end

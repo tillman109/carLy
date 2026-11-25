@@ -249,8 +249,6 @@ static void CLPrefsDarwinCallback(CFNotificationCenterRef center, void *observer
     resolved[CLPrefKeyArtworkCornerRadius] = @(MAX(0.0, CLPrefsDouble(raw(CLPrefKeyArtworkCornerRadius), 12.0)));
     resolved[CLPrefKeyBackdropStyle] = @(CLClampInt(CLPrefsInt(raw(CLPrefKeyBackdropStyle), 0), 0, 1));
     resolved[CLPrefKeyBackdropOpacity] = @(CLClampDouble(CLPrefsDouble(raw(CLPrefKeyBackdropOpacity), 1.0), 0.0, 1.0));
-    resolved[CLPrefKeyTintFromArtwork] = @(CLPrefsBool(raw(CLPrefKeyTintFromArtwork), NO));
-    resolved[CLPrefKeyAccentColor] = CLPrefsString(raw(CLPrefKeyAccentColor), @"");
     resolved[CLPrefKeyShowAlbum] = @(CLPrefsBool(raw(CLPrefKeyShowAlbum), YES));
     // 1 was the thin bar until 0.5.0; it reads as the system bar.
     NSInteger progressStyle = CLClampInt(CLPrefsInt(raw(CLPrefKeyProgressBarStyle), 0), 0, 2);
@@ -382,8 +380,6 @@ static void CLPrefsDarwinCallback(CFNotificationCenterRef center, void *observer
 - (double)artworkCornerRadius { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyArtworkCornerRadius] doubleValue]; }
 - (NSInteger)backdropStyle { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyBackdropStyle] integerValue]; }
 - (double)backdropOpacity { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyBackdropOpacity] doubleValue]; }
-- (BOOL)tintFromArtwork { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyTintFromArtwork] boolValue]; }
-- (NSString *)accentColorHex { return (NSString *)[self valueForResolvedKey:CLPrefKeyAccentColor] ?: @""; }
 - (BOOL)showAlbum { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyShowAlbum] boolValue]; }
 - (NSInteger)progressBarStyle { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyProgressBarStyle] integerValue]; }
 - (BOOL)hidePlaybackRateButton { return [(NSNumber *)[self valueForResolvedKey:CLPrefKeyHidePlaybackRateButton] boolValue]; }

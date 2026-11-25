@@ -10,10 +10,8 @@ static NSArray<NSString *> *CLPreviewLines(void) {
 }
 static const NSInteger CLPreviewCurrentLine = 3;
 
-/// Colours of the imaginary album cover, and the accent "Use Album Colors" would derive from it.
 static UIColor *CLPreviewCoverColorA(void) { return [UIColor colorWithRed:0.93 green:0.45 blue:0.22 alpha:1.0]; }
 static UIColor *CLPreviewCoverColorB(void) { return [UIColor colorWithRed:0.35 green:0.12 blue:0.42 alpha:1.0]; }
-static UIColor *CLPreviewArtworkAccent(void) { return [UIColor colorWithRed:0.98 green:0.62 blue:0.36 alpha:1.0]; }
 
 @implementation CLLayoutPreviewView {
     /// One device pixel in drawing (screen-point) units for the pass in progress.
@@ -379,21 +377,20 @@ static UIFontWeight CLFontWeight(NSInteger numeric) {
     CGRect playMode = CGRectMake(CGRectGetMinX(column), y, CGRectGetWidth(column), CLLayoutHostPlayModeHeight);
 
     // The artwork square, rounded like the tweak rounds the brick (the lyrics replace it in mode 3).
-    UIColor *accent = [self cl_accentColorForModel:model];
     if (showsArtwork) {
         [self cl_drawCoverIn:context rect:art cornerRadius:model.artworkCornerRadius];
     }
 
     // Song details in the host's tier: small = Callout title, Caption artist/album; large = Title.
     UIColor *label = [UIColor colorWithWhite:1.0 alpha:0.95];
-    UIColor *secondary = accent ?: [UIColor colorWithWhite:1.0 alpha:0.6];
+    UIColor *secondary = [UIColor colorWithWhite:1.0 alpha:0.6];
     CGFloat titleSize = large ? 24.0 : 17.0, artistSize = large ? 17.0 : 14.0, albumSize = large ? 15.0 : 14.0;
     CGFloat lineY = CGRectGetMinY(details) + 2.0;
     CGFloat textWidth = CGRectGetWidth(details);
     if (_card) {
         CLFillTextBar(context, CGRectMake(CGRectGetMinX(details), lineY, textWidth, titleSize * 0.6), 0.7, 0, label);
         lineY += titleSize * 0.6 + 6.0;
-        CLFillTextBar(context, CGRectMake(CGRectGetMinX(details), lineY, textWidth, artistSize * 0.6), 0.45, 0, secondary);
+        CLFillTextBar(context, CGRectMake(CGRectGetMinX(details), lineY, textWidth, artistSize * 0.6), 0.45, 0, label);
         lineY += artistSize * 0.6 + 6.0;
         if (model.showAlbum) CLFillTextBar(context, CGRectMake(CGRectGetMinX(details), lineY, textWidth, albumSize * 0.6), 0.55, 0, secondary);
     } else {
@@ -401,7 +398,7 @@ static UIFontWeight CLFontWeight(NSInteger numeric) {
                    [UIFont systemFontOfSize:titleSize weight:UIFontWeightSemibold], label, NSTextAlignmentLeft);
         lineY += titleSize + 6.0;
         CLDrawText(@"The Night Drivers", CGRectMake(CGRectGetMinX(details), lineY, textWidth, artistSize + 5.0),
-                   [UIFont systemFontOfSize:artistSize weight:UIFontWeightRegular], secondary, NSTextAlignmentLeft);
+                   [UIFont systemFontOfSize:artistSize weight:UIFontWeightRegular], label, NSTextAlignmentLeft);
         lineY += artistSize + 5.0;
         if (model.showAlbum) {
             CLDrawText(@"Open Roads", CGRectMake(CGRectGetMinX(details), lineY, textWidth, albumSize + 5.0),
@@ -443,7 +440,7 @@ static UIFontWeight CLFontWeight(NSInteger numeric) {
         }
     }
 
-    // Progress bar (show / hide) in the host's 10 pt slot, with the accent.
+    // Progress bar keeps the normal CarPlay colour (show / hide only).
     if (model.progressBarStyle != 2) {
         CGFloat thickness = _card ? 4.0 : 6.0;
         CGRect track = CGRectMake(CGRectGetMinX(progress), CGRectGetMidY(progress) - thickness / 2.0,
@@ -451,7 +448,7 @@ static UIFontWeight CLFontWeight(NSInteger numeric) {
         CLFillRoundedRect(context, track, thickness / 2.0, [UIColor colorWithWhite:1.0 alpha:0.25]);
         CGRect elapsed = track;
         elapsed.size.width *= 0.38;
-        CLFillRoundedRect(context, elapsed, thickness / 2.0, accent ?: [UIColor colorWithWhite:1.0 alpha:0.9]);
+        CLFillRoundedRect(context, elapsed, thickness / 2.0, [UIColor colorWithWhite:1.0 alpha:0.9]);
     }
 
     // Play-mode row: Spotify's four buttons and, with the Lyrics Button on, the microphone (as many
@@ -475,7 +472,6 @@ static UIFontWeight CLFontWeight(NSInteger numeric) {
 - (void)cl_drawFullScreenIn:(CGContextRef)context safe:(CGRect)safe model:(CLLayoutPreviewModel *)model {
     [self cl_drawPanelIn:context rect:CLLayoutFullScreenLyricsRect(safe) fit:CLLayoutPanelFitRows model:model];
 
-    UIColor *accent = [self cl_accentColorForModel:model];
     UIColor *secondary = [UIColor colorWithWhite:1.0 alpha:0.6];
     CGRect progress = CLLayoutFullScreenProgressRect(safe);
     if (model.progressBarStyle != 2) {
@@ -493,7 +489,7 @@ static UIFontWeight CLFontWeight(NSInteger numeric) {
         CLFillRoundedRect(context, track, thickness / 2.0, [UIColor colorWithWhite:1.0 alpha:0.25]);
         CGRect fill = track;
         fill.size.width *= 0.37;
-        CLFillRoundedRect(context, fill, thickness / 2.0, accent ?: [UIColor colorWithWhite:1.0 alpha:0.9]);
+        CLFillRoundedRect(context, fill, thickness / 2.0, [UIColor colorWithWhite:1.0 alpha:0.9]);
     }
 
     CGRect row = CLLayoutFullScreenRowRect(safe);
@@ -515,22 +511,14 @@ static UIFontWeight CLFontWeight(NSInteger numeric) {
         CGFloat textWidth = MAX(0.0, x - CGRectGetMinX(row) - 4.0);
         if (_card) {
             CLFillTextBar(context, CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) - 9.0, textWidth, 7.0), 0.8, 0, white);
-            CLFillTextBar(context, CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) + 3.0, textWidth, 6.0), 0.55, 0, accent ?: secondary);
+            CLFillTextBar(context, CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) + 3.0, textWidth, 6.0), 0.55, 0, white);
         } else {
             CLDrawText(@"Long Way Home", CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) - 18.0, textWidth, 20.0),
                        [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold], white, NSTextAlignmentLeft);
             CLDrawText(@"The Night Drivers", CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) + 1.0, textWidth, 17.0),
-                       [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular], accent ?: secondary, NSTextAlignmentLeft);
+                       [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular], white, NSTextAlignmentLeft);
         }
     }
-}
-
-- (UIColor *)cl_accentColorForModel:(CLLayoutPreviewModel *)model {
-    if (model.tintFromArtwork) return CLPreviewArtworkAccent();
-    if (model.accentColorHex.length == 0) return nil;
-    UIColor *sentinel = UIColor.clearColor;
-    UIColor *color = [CLPrefsColor colorWithHex:model.accentColorHex fallback:sentinel];
-    return (color == sentinel) ? nil : color;
 }
 
 - (void)cl_drawCoverIn:(CGContextRef)context rect:(CGRect)rect cornerRadius:(CGFloat)radius {

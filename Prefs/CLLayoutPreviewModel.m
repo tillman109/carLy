@@ -34,8 +34,6 @@
     model.artworkCornerRadius = MAX(0.0, MIN(200.0, number(CLPrefKeyArtworkCornerRadius, 12.0)));
     model.backdropStyle = MAX((NSInteger)0, MIN((NSInteger)1, integer(CLPrefKeyBackdropStyle, 0)));
     model.backdropOpacity = MAX(0.0, MIN(1.0, number(CLPrefKeyBackdropOpacity, 1.0)));
-    model.tintFromArtwork = boolean(CLPrefKeyTintFromArtwork, NO);
-    model.accentColorHex = string(CLPrefKeyAccentColor, @"");
     model.showAlbum = boolean(CLPrefKeyShowAlbum, YES);
     NSInteger progress = MAX((NSInteger)0, MIN((NSInteger)2, integer(CLPrefKeyProgressBarStyle, 0)));
     model.progressBarStyle = (progress == 1) ? 0 : progress;      // 1 was the removed thin bar
@@ -62,8 +60,6 @@
     copy.artworkCornerRadius = self.artworkCornerRadius;
     copy.backdropStyle = self.backdropStyle;
     copy.backdropOpacity = self.backdropOpacity;
-    copy.tintFromArtwork = self.tintFromArtwork;
-    copy.accentColorHex = self.accentColorHex;
     copy.showAlbum = self.showAlbum;
     copy.progressBarStyle = self.progressBarStyle;
     copy.hidePlaybackRateButton = self.hidePlaybackRateButton;

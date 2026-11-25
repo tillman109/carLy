@@ -69,8 +69,6 @@
 // | artworkCornerRadius           | float           | 12                                            | Corner radius applied to the artwork square, in points. |
 // | backdropStyle                 | int             | 0                                             | The host's own full-bleed blurred artwork backdrop (verified in -[CPUINowPlayingViewController viewDidLoad]): 0 keep it (system), 1 plain (hidden: the host's dark table background shows). |
 // | backdropOpacity               | float           | 1.0                                           | Opacity of the host's backdrop artwork image, 0...1; 1 is the system look, lower is darker. Ignored when backdropStyle is 1. |
-// | tintFromArtwork                | bool            | NO                                            | Derive the accent colour from the current artwork instead of accentColor. |
-// | accentColor                   | hex string      | "" (system)                                   | Custom accent colour; empty means use the system/CarPlay tint. |
 // | showAlbum                     | bool            | YES                                           | Show the album name line in the song details. |
 // | progressBarStyle              | int             | 0                                             | 0 show, 2 hide; 1 (the removed thin bar) reads as 0. |
 // | hidePlaybackRateButton        | bool            | NO                                            | Hide the playback-speed ("1×") button in the player's play-mode row (shown for podcasts and audiobooks). 0.7.4: before, it hid an empty label in the top bar. |
@@ -125,8 +123,6 @@
 #define CLPrefKeyArtworkCornerRadius         (@"artworkCornerRadius")
 #define CLPrefKeyBackdropStyle               (@"backdropStyle")
 #define CLPrefKeyBackdropOpacity             (@"backdropOpacity")
-#define CLPrefKeyTintFromArtwork             (@"tintFromArtwork")
-#define CLPrefKeyAccentColor                 (@"accentColor")
 #define CLPrefKeyShowAlbum                   (@"showAlbum")
 #define CLPrefKeyProgressBarStyle            (@"progressBarStyle")
 #define CLPrefKeyHidePlaybackRateButton      (@"hidePlaybackRateButton")

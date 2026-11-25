@@ -95,8 +95,6 @@ NSString *CLPrefsActiveDomain(void);
 @property (nonatomic, readonly) double artworkCornerRadius;
 @property (nonatomic, readonly) NSInteger backdropStyle;            // 0 the host's blurred artwork backdrop, 1 plain (hidden)
 @property (nonatomic, readonly) double backdropOpacity;             // 0...1, opacity of the host's backdrop image (1 = system)
-@property (nonatomic, readonly) BOOL tintFromArtwork;
-@property (nonatomic, readonly, copy) NSString *accentColorHex;     // "" = system tint
 @property (nonatomic, readonly) BOOL showAlbum;
 @property (nonatomic, readonly) NSInteger progressBarStyle;         // 0 show, 2 hide (stored 1, the removed thin bar, reads as 0)
 @property (nonatomic, readonly) BOOL hidePlaybackRateButton;
