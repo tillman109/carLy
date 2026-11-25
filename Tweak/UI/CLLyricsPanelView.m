@@ -80,8 +80,8 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
     NSInteger _lastPaintKey;
     BOOL _rowsAreTimed;              ///< synced lyrics: rows map 1:1 to lyrics.lines and can be tapped
     NSTimer *_resumeTimer;
-    // After tap-to-seek the audio command is sent immediately, but this display
-    // deliberately keeps its previous line until delayed wireless audio catches up.
+    // Tap-to-seek selects and centres the sentence IMMEDIATELY. Only its
+    // word-by-word karaoke animation waits for wireless audio to catch up.
     NSTimer *_tapSeekTimer;
     BOOL _tapSeekHoldActive;
     NSInteger _tapSeekPendingIndex;
@@ -222,10 +222,9 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 - (void)setCurrentLineIndex:(NSInteger)index animated:(BOOL)animated {
     CLUIRunOnMain(^{
         if (self->_tapSeekHoldActive) {
-            // During wireless transport latency, keep the *tapped* sentence as
-            // the release target. The sync engine may briefly report the
-            // preceding line when the usual negative wireless offset applies.
-            // Changing the pending row here would undo the user's selection.
+            // The tapped sentence is already highlighted. Ignore playback
+            // position callbacks for this short interval: the wireless offset
+            // may still report the preceding line just after seeking.
             return;
         }
         if (index == self->_currentLineIndex) return;
@@ -449,7 +448,10 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
                   (!_style.keepSungBright || row > _currentLineIndex);
 
     // The current line sweeps word by word when it has word timing and the clock is available.
-    NSArray<CLLyricWord *> *words = isCurrent ? [self cl_wordsForRow:row] : nil;
+    // A tap instantly brightens the entire selected sentence, but karaoke
+    // progression does not start until the wireless seek delay expires.
+    NSArray<CLLyricWord *> *words =
+        (isCurrent && !_tapSeekHoldActive) ? [self cl_wordsForRow:row] : nil;
     CLLyricsPanelTimeProvider provider = _lyricTimeProvider;
     NSTimeInterval now = (words && provider) ? provider() : NAN;
     if (words && isfinite(now)) {
@@ -597,7 +599,7 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 - (void)cl_wordTick {
     // A timer block has no handler above it: an exception here would abort CarPlayTemplateUIHost.
     CLUISafePerform(@"lyrics word tick", ^{
-        if (self->_tapSeekHoldActive) return; // keep previous lyrics static during wireless delay
+        if (self->_tapSeekHoldActive) return; // selected line stays fully lit; only word sweep waits
         NSInteger row = self->_currentLineIndex;
         NSArray<CLLyricWord *> *words = [self cl_wordsForRow:row];
         CLLyricsPanelTimeProvider provider = self->_lyricTimeProvider;
@@ -695,12 +697,26 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
 
 - (void)cl_holdLyricsAfterTappedSeek:(NSInteger)selectedRow {
     [self cl_cancelTapSeekHold];
+
     NSTimeInterval delay = [self cl_wirelessSeekDelay];
-    if (delay < 0.005) return;
-    _tapSeekHoldActive = YES;
-    _tapSeekPendingIndex = selectedRow;
-    CLLogDebug(@"[ui] tap-to-seek wireless sync: delaying lyric highlight %.0fms (line=%ld)",
-               delay * 1000.0, (long)selectedRow);
+    if (delay >= 0.005) {
+        // Set the hold BEFORE refreshing the row so cl_configureCell: paints the
+        // entire selected sentence bright rather than starting the word sweep.
+        _tapSeekHoldActive = YES;
+        _tapSeekPendingIndex = selectedRow;
+    }
+
+    // Selecting a lyric must feel instant even over wireless CarPlay.
+    // Unlike the old implementation, the line highlight and recenter are NOT delayed.
+    _currentLineIndex = selectedRow;
+    _lastPaintRow = -1;
+    [self cl_restyleVisibleCells];
+    [self cl_updateWordTimer];
+    [self cl_scrollToCurrentLineAnimated:NO force:YES];
+
+    if (delay < 0.005) return; // wired/zero-offset: normal immediate karaoke
+    CLLogDebug(@"[ui] tap-to-seek: line %ld lit immediately, word sweep waits %.0fms",
+               (long)selectedRow, delay * 1000.0);
 
     __weak typeof(self) weakSelf = self;
     _tapSeekTimer = [NSTimer timerWithTimeInterval:delay repeats:NO block:^(NSTimer *timer) {
@@ -708,13 +724,11 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
         if (!strongSelf || !strongSelf->_tapSeekHoldActive) return;
         NSInteger target = strongSelf->_tapSeekPendingIndex;
         [strongSelf cl_cancelTapSeekHold];
-        // Apply the latest playback line when available, or the tapped line if the
-        // MediaRemote response is still pending. Preserve exact line-start word timing.
-        if (target < 0) return;
-        [strongSelf setCurrentLineIndex:target animated:NO];
-        [strongSelf cl_scrollToCurrentLineAnimated:NO force:YES];
+        // The sentence was already highlighted when tapped. Here we release
+        // only the delayed word-by-word progress using the current lyric clock.
+        [strongSelf cl_updateWordTimer];
         [strongSelf cl_restyleVisibleCells];
-        CLLogDebug(@"[ui] tap-to-seek lyric highlight released (line=%ld)", (long)target);
+        CLLogDebug(@"[ui] tap-to-seek: word sweep resumed (line=%ld)", (long)target);
     }];
     [NSRunLoop.mainRunLoop addTimer:_tapSeekTimer forMode:NSRunLoopCommonModes];
 }
@@ -741,8 +755,8 @@ static UIColor *CLLyricsBlend(UIColor *from, UIColor *to, CGFloat fraction) {
         [self cl_holdLyricsAfterTappedSeek:row];
         [delegate lyricsPanel:self didSelectLineAtIndex:row];
     }
-    // Clear any prior pan-induced auto-scroll block. Wireless sync holds the
-    // highlight separately until the audio output has caught up.
+    // Clear any prior pan-induced auto-scroll block. Only the karaoke word
+    // sweep remains held during wireless latency; line selection is immediate.
     _autoScrollBlockedUntil = 0.0;
     [_resumeTimer invalidate];
     _resumeTimer = nil;
