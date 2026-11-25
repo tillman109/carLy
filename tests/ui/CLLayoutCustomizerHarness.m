@@ -803,6 +803,10 @@ static void TestPanel(void) {
     EXPECT([tappedLabel.textColor isEqual:[CLLyricsStyle currentStyle].currentColor] &&
            ![[tappedLabel valueForKey:@"wordStyled"] boolValue],
            "wireless seek: tapped sentence is fully bright, with no premature word sweep");
+    if (!UIAccessibilityIsReduceMotionEnabled()) {
+        EXPECT([tappedLabel.layer animationForKey:@"cl-wireless-seek-pulse"] != nil,
+               "wireless seek: only the selected sentence pulses while the karaoke delay is active");
+    }
 
     // A negative sync offset can temporarily report the preceding line after a seek.
     // It must NOT undo the immediately highlighted tapped sentence.
@@ -815,6 +819,8 @@ static void TestPanel(void) {
     tappedLabel = (UILabel *)[tappedCell.contentView viewWithTag:9101];
     EXPECT([[tappedLabel valueForKey:@"wordStyled"] boolValue],
            "wireless seek: word-by-word highlighting resumes after 122ms");
+    EXPECT([tappedLabel.layer animationForKey:@"cl-wireless-seek-pulse"] == nil,
+           "wireless seek: loading pulse disappears as soon as karaoke resumes");
 
     // Disable the delay: the tapped sentence and karaoke now both update immediately.
     SetPref(CLPrefKeyLyricsTapSeekWirelessDelay, @NO);
@@ -827,6 +833,8 @@ static void TestPanel(void) {
     UILabel *instantLabel = (UILabel *)[instantCell.contentView viewWithTag:9101];
     EXPECT([[instantLabel valueForKey:@"wordStyled"] boolValue],
            "wired/disabled delay: word highlighting is not held");
+    EXPECT([instantLabel.layer animationForKey:@"cl-wireless-seek-pulse"] == nil,
+           "wired/disabled delay: no loading pulse appears");
     panel.delegate = nil;
     panel.lyricTimeProvider = nil;
     SetPref(CLPrefKeyLyricsTapSeekWirelessDelay, @NO);

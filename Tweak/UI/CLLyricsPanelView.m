@@ -1,5 +1,6 @@
 #import "UI/CLLyricsPanelView.h"
 #import <QuartzCore/QuartzCore.h>
+#import <math.h>
 #import "UI/CLLayoutGeometry.h"
 #import "UI/CLLyricsStyle.h"
 #import "Lyrics/CLWordTiming.h"

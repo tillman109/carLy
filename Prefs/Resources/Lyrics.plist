@@ -230,7 +230,7 @@
 		<dict>
 			<key>cell</key><string>PSGroupCell</string>
 			<key>label</key><string>Touch Controls</string>
-			<key>footerText</key><string>Optional: swipe through timed lyrics and tap a line to seek. Wireless Delay After Tap-to-Seek reuses the absolute value of the active Spotify &amp; Apple Music or Other Sources timing slider (e.g. 122 ms), seeks to the start of that lyric, then waits that long before highlighting it. It does not delay the seek command. On wireless CarPlay, a negative timing offset delays normal lyric display. Touch controls may affect rotary focus on some head units; test while parked.</string>
+			<key>footerText</key><string>Optional: swipe through timed lyrics and tap a line to seek. Wireless Delay After Tap-to-Seek reuses the absolute value of the active Spotify &amp; Apple Music or Other Sources timing slider (e.g. 122 ms), seeks to the start of that lyric, highlights the entire selected sentence immediately with a gentle pulse, and delays only the word-by-word karaoke sweep. The pulse stops when the configured delay ends. At short delays such as 122 ms, only a brief part of a pulse is visible. It does not delay the seek command. On wireless CarPlay, a negative timing offset delays normal lyric display. Touch controls may affect rotary focus on some head units; test while parked.</string>
 		</dict>
 		<dict>
 			<key>cell</key><string>PSSwitchCell</string>
