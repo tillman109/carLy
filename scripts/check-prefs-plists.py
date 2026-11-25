@@ -193,7 +193,7 @@ for source in sorted(glob.glob("Prefs/*.m")):
 # CLPrefKey symbols fails at compile time, so catch it before invoking Theos.
 # Historical plain-string values remain intentionally listed in legacyKeys()
 # for resetting old installs and must not be treated as active preferences.
-deprecated_symbols = re.compile(r"\\bCLPrefKey(?:TintFromArtwork|AccentColor)\\b")
+deprecated_symbols = re.compile(r"\bCLPrefKey(?:TintFromArtwork|AccentColor)\b")
 for source in sorted(glob.glob("Prefs/*.m") + glob.glob("Tweak/**/*.m", recursive=True)):
     with open(source, encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, 1):
