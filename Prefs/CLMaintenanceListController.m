@@ -97,8 +97,6 @@ static NSString *const kCLLyricsCacheDirectory = @"/var/mobile/Library/Caches/ca
         mark(CLPrefKeyArtworkCornerRadius, CLPrefValueTypeNumber);
         mark(CLPrefKeyBackdropStyle, CLPrefValueTypeNumber);
         mark(CLPrefKeyBackdropOpacity, CLPrefValueTypeNumber);
-        mark(CLPrefKeyTintFromArtwork, CLPrefValueTypeBool);
-        mark(CLPrefKeyAccentColor, CLPrefValueTypeString);
         mark(CLPrefKeyShowAlbum, CLPrefValueTypeBool);
         mark(CLPrefKeyProgressBarStyle, CLPrefValueTypeNumber);
         mark(CLPrefKeyHidePlaybackRateButton, CLPrefValueTypeBool);
