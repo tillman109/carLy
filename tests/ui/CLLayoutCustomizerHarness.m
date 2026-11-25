@@ -845,7 +845,9 @@ static void TestCustomizerPrefs(CPUINowPlayingViewController *vc) {
     SetPref(CLPrefKeyProgressBarStyle, @(2));
     SetPref(CLPrefKeyHideQueueButton, @YES);
     SetPref(CLPrefKeyBackdropOpacity, @(0.4));
-    SetPref(CLPrefKeyTintFromArtwork, @YES);
+    // Old Accent values may remain on disk; verify the new build ignores them.
+    SetPref(@"tintFromArtwork", @YES);
+    SetPref(@"accentColor", @"#000000");
     vc->_artworkImage = TestArtwork();
     Pump();
     Layout(vc);
@@ -866,7 +868,10 @@ static void TestCustomizerPrefs(CPUINowPlayingViewController *vc) {
     EXPECT(vc.navigationItem.rightBarButtonItems.firstObject == vc->_rightTitleLabelBarButtonItem, "the right item stayed");
     EXPECT(fabs(npv->_songDetailsViewHeightConstraint.constant - 100.0) < 0.5,
            "the song-details height is the host's own (%.1f)", npv->_songDetailsViewHeightConstraint.constant);
-    EXPECT([npv->_progressView.tintColor isEqual:UIColor.clearColor] == NO, "progress tinted from artwork");
+    EXPECT(CLPrefs.shared.snapshot[@"tintFromArtwork"] == nil && CLLyricsController.sharedController != nil,
+           "old Accent preferences are ignored by the runtime");
+    EXPECT(![npv->_progressView.tintColor isEqual:UIColor.blackColor],
+           "old black Accent preference no longer tints progress bar");
     // relayout must be idempotent.
     for (int i = 0; i < 5; i++) { [customizer relayout]; Layout(vc); }
     EXPECT(fabs(brick.layer.cornerRadius - 30.0) < 0.01, "corner radius stable across relayouts");
@@ -975,7 +980,6 @@ static void TestDetach(CPUINowPlayingViewController *vc) {
     SetPref(CLPrefKeyProgressBarStyle, @(2));
     SetPref(CLPrefKeyShowAlbum, @NO);
     SetPref(CLPrefKeyHideQueueButton, @YES);
-    SetPref(CLPrefKeyAccentColor, @"#FF0000");
     Pump(); Layout(vc);
     EXPECT(vc->_artworkView.isHidden, "sanity: the host's backdrop was hidden before detaching");
     [[CLLayoutCustomizer customizerForViewController:vc create:NO] relayout];
@@ -1012,7 +1016,6 @@ static void TestDetach(CPUINowPlayingViewController *vc) {
     SetPref(CLPrefKeyProgressBarStyle, @(0));
     SetPref(CLPrefKeyShowAlbum, @YES);
     SetPref(CLPrefKeyHideQueueButton, @NO);
-    ClearPref(CLPrefKeyAccentColor);
 }
 
 static void TestBarrenController(void) {
@@ -1111,7 +1114,8 @@ static void TestStress(CPUINowPlayingViewController *vc) {
 /// The six keys 0.5.0 dropped. Never written by the tests except in TestLegacyPrefs, but cleared
 /// here too so a stale scratch domain cannot leak them into another run.
 static NSArray<NSString *> *LegacyKeys(void) {
-    return @[ @"lyricsPosition", @"lyricsMaxLines", @"artworkScale", @"titleFontSize", @"compactMode", @"hideAppBadge" ];
+    return @[ @"lyricsPosition", @"lyricsMaxLines", @"artworkScale", @"titleFontSize", @"compactMode", @"hideAppBadge",
+              @"tintFromArtwork", @"accentColor" ];
 }
 
 static void ResetPrefs(void) {
@@ -1119,7 +1123,7 @@ static void ResetPrefs(void) {
         CLPrefKeyEnabled, CLPrefKeyLyricsMode,
         CLPrefKeyArtworkCornerRadius, CLPrefKeyShowAlbum, CLPrefKeyProgressBarStyle,
         CLPrefKeyHideQueueButton, CLPrefKeyHidePlaybackRateButton,
-        CLPrefKeyBackdropStyle, CLPrefKeyBackdropOpacity, CLPrefKeyTintFromArtwork, CLPrefKeyAccentColor,
+        CLPrefKeyBackdropStyle, CLPrefKeyBackdropOpacity,
         CLPrefKeyLyricsBackground, CLPrefKeyLyricsAnimations, CLPrefKeyLyricsFontSize,
     ] arrayByAddingObjectsFromArray:LegacyKeys()];
     // Removing a key and reading the domain back in the same breath is not reliable the first

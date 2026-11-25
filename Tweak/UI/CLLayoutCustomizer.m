@@ -645,8 +645,10 @@ static BOOL sHostColumnHooksInstalled = NO;
     _artworkCornerRadius = MAX(0.0, MIN(200.0, prefs.artworkCornerRadius));
     _backdropStyle = MAX((NSInteger)0, MIN((NSInteger)1, prefs.backdropStyle));
     _backdropOpacity = MAX(0.0, MIN(1.0, prefs.backdropOpacity));
-    _tintFromArtwork = prefs.tintFromArtwork;
-    _accentColorHex = [(prefs.accentColorHex ?: @"") copy];
+    // Accent has been removed from Layout settings. Ignore values saved by
+    // earlier versions, leaving progress and album tints entirely to CarPlay.
+    _tintFromArtwork = NO;
+    _accentColorHex = @"";
     _showAlbum = prefs.showAlbum;
     NSInteger progressStyle = MAX((NSInteger)0, MIN((NSInteger)2, prefs.progressBarStyle));
     _progressBarStyle = (progressStyle == 1) ? 0 : progressStyle;   // 1 was the thin bar (0.5.0)
