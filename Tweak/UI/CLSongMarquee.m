@@ -90,6 +90,28 @@ static UIImage *CLMarqueeImage(NSString *text, UIFont *font, UIColor *color,
     _textLayer.contentsScale = MAX(1.0, scale);
 }
 
+- (UIColor *)visibleColorForLabel:(UILabel *)label {
+    if (!label) return nil;
+    return (_host == label && _textLayer) ? _originalColor : label.textColor;
+}
+
+- (void)setVisibleTextColor:(UIColor *)color forLabel:(UILabel *)label {
+    if (!label || !color) return;
+    if (_host == label && _textLayer) {
+        if (![_originalColor isEqual:color]) {
+            _originalColor = color;
+            if (_lastText.length) {
+                NSString *looped = [NSString stringWithFormat:@"%@        %@", _lastText, _lastText];
+                [self cl_updateImageWithText:looped font:label.font color:color];
+            }
+        }
+        // Keep the stock UILabel hidden while our pre-rendered layer scrolls.
+        if (![label.textColor isEqual:UIColor.clearColor]) label.textColor = UIColor.clearColor;
+    } else if (![label.textColor isEqual:color]) {
+        label.textColor = color;
+    }
+}
+
 - (void)updateForLabel:(UILabel *)label sourceText:(NSString *)sourceText {
     if (![label isKindOfClass:UILabel.class] || label.isHidden || label.text.length == 0 ||
         !label.font || CGRectGetHeight(label.bounds) < 10.0) {

@@ -431,9 +431,17 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
 
 - (void)setAccentColor:(UIColor *)color {
     UIColor *fill = color ?: [UIColor colorWithWhite:1.0 alpha:0.9];
-    UIColor *artist = color ?: UIColor.secondaryLabelColor;
+    // The full-screen artist should follow the SONG TITLE in dark appearance,
+    // not an artwork accent that may be nearly black against the backdrop.
+    UIColor *titleColor = [_titleMarquee visibleColorForLabel:_titleLabel] ?: UIColor.labelColor;
+    UIColor *resolved = [titleColor resolvedColorWithTraitCollection:self.traitCollection];
+    CGFloat r = 0, g = 0, b = 0, a = 0;
+    BOOL lightTitle = [resolved getRed:&r green:&g blue:&b alpha:&a] &&
+                      (0.2126*r + 0.7152*g + 0.0722*b) > 0.65 && a > 0.1;
+    BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark || lightTitle;
+    UIColor *artist = dark ? titleColor : (color ?: UIColor.secondaryLabelColor);
     if (![_progressFill.backgroundColor isEqual:fill]) _progressFill.backgroundColor = fill;
-    if (![_artistLabel.textColor isEqual:artist]) _artistLabel.textColor = artist;
+    [_artistMarquee setVisibleTextColor:artist forLabel:_artistLabel];
     [self cl_updateSongMarquees];
 }
 

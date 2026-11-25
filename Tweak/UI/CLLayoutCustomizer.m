@@ -1496,6 +1496,19 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
 
 #pragma mark - Accent tint
 
+/// CarPlay may draw on a dark surface even if the UIKit trait is unspecified.
+/// Respect the actual title colour too: bright titles should have bright artist text.
+static BOOL CLSongTitleLooksLight(UIColor *color, UITraitCollection *traits) {
+    if (!color) return NO;
+    UIColor *resolved = [color resolvedColorWithTraitCollection:traits ?: UIScreen.mainScreen.traitCollection];
+    CGFloat r, g, b, a;
+    if ([resolved getRed:&r green:&g blue:&b alpha:&a]) {
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.65 && a > 0.1;
+    }
+    CGFloat w;
+    return [resolved getWhite:&w alpha:&a] && w > 0.65 && a > 0.1;
+}
+
 - (UIColor *)cl_accentColor {
     if (_tintFromArtwork) {
         UIImage *image = [self cl_passArtworkImage];
@@ -1518,7 +1531,27 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     UIView *nowPlayingView = _nowPlayingView;
 
     if (!accent) {
-        [self cl_restoreAccentTint];
+        // No accent configured: still correct black artist text on dark CarPlay.
+        // Preserve the host's original colour so light mode can restore it.
+        if (_tintStateSaved) [self cl_restoreAccentTint];
+        NSArray<UILabel *> *labels = [self cl_songDetailsLabels];
+        if (labels.count >= 2) {
+            UILabel *title = labels[0], *artist = labels[1];
+            UIColor *titleColour = [_titleMarquee visibleColorForLabel:title] ?: title.textColor;
+            BOOL dark = artist.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark ||
+                        CLSongTitleLooksLight(titleColour, title.traitCollection);
+            if (dark) {
+                if (![_savedLabelColors objectForKey:artist]) {
+                    UIColor *prior = [_artistMarquee visibleColorForLabel:artist] ?: artist.textColor;
+                    [_savedLabelColors setObject:(prior ?: UIColor.labelColor) forKey:artist];
+                }
+                [_artistMarquee setVisibleTextColor:(titleColour ?: UIColor.labelColor) forLabel:artist];
+            } else if ([_savedLabelColors objectForKey:artist]) {
+                UIColor *prior = [_savedLabelColors objectForKey:artist];
+                [_artistMarquee setVisibleTextColor:prior forLabel:artist];
+                [_savedLabelColors removeObjectForKey:artist];
+            }
+        }
         return;
     }
 
@@ -1538,20 +1571,28 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     }
     if (nowPlayingView && nowPlayingView.tintColor != accent) nowPlayingView.tintColor = accent;
 
-    // The artist/album lines take the accent; the title stays at the host's colour so it is always
-    // the most legible thing on screen.
+    // Keep the album's artwork accent unchanged. Only the ARTIST should match
+    // the song title when its white/light foreground indicates a dark CarPlay UI.
     NSArray<UILabel *> *labels = [self cl_songDetailsLabels];
+    UILabel *title = labels.firstObject;
+    UIColor *titleColour = [_titleMarquee visibleColorForLabel:title] ?: title.textColor;
+    BOOL brightTitle = title && CLSongTitleLooksLight(titleColour, title.traitCollection);
     for (NSUInteger i = 1; i < labels.count && i < 3; i++) {
         UILabel *label = labels[i];
         if (![_savedLabelColors objectForKey:label]) {
-            [_savedLabelColors setObject:(label.textColor ?: UIColor.labelColor) forKey:label];
+            UIColor *prior = i == 1 ? [_artistMarquee visibleColorForLabel:label] : label.textColor;
+            [_savedLabelColors setObject:(prior ?: UIColor.labelColor) forKey:label];
         }
-        if (label.textColor != accent) label.textColor = accent;
+        UIColor *wanted = (i == 1 && (brightTitle ||
+            label.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark))
+            ? (titleColour ?: UIColor.labelColor) : accent;
+        if (i == 1) [_artistMarquee setVisibleTextColor:wanted forLabel:label];
+        else if (![label.textColor isEqual:wanted]) label.textColor = wanted;
     }
 }
 
 - (void)cl_restoreAccentTint {
-    if (!_tintStateSaved) return;
+    if (!_tintStateSaved && _savedLabelColors.count == 0) return;
     UIView *progress = _progressView;
     if (progress) {
         progress.tintColor = _savedProgressTintColor;
@@ -1563,9 +1604,13 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
         }
     }
     _nowPlayingView.tintColor = _savedNowPlayingTintColor;
+    NSArray<UILabel *> *labels = [self cl_songDetailsLabels];
+    UILabel *artist = labels.count >= 2 ? labels[1] : nil;
     for (UILabel *label in [[_savedLabelColors keyEnumerator] allObjects]) {
         UIColor *original = [_savedLabelColors objectForKey:label];
-        if (original) label.textColor = original;
+        if (!original) continue;
+        if (label == artist) [_artistMarquee setVisibleTextColor:original forLabel:label];
+        else label.textColor = original;
     }
     [_savedLabelColors removeAllObjects];
     _savedProgressTintColor = nil;
