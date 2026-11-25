@@ -736,6 +736,18 @@ static void TestNoteLinesAreGaps(void) {
     EXPECT(!CLLyricsTextIsGap(@"la") && !CLLyricsTextIsGap(@"♪ oh"), "anything with a word is not a gap");
 }
 
+/// Simulates the host accepting a seek, without issuing MediaRemote commands.
+@interface CLPanelTapSpy : NSObject <CLLyricsPanelViewDelegate>
+@property (nonatomic) NSInteger calls;
+@property (nonatomic) NSInteger selectedRow;
+@end
+@implementation CLPanelTapSpy
+- (void)lyricsPanel:(CLLyricsPanelView *)panel didSelectLineAtIndex:(NSInteger)index {
+    self.calls++;
+    self.selectedRow = index;
+}
+@end
+
 static void TestPanel(void) {
     CLLyricsPanelView *panel = [[CLLyricsPanelView alloc] initWithFrame:CGRectMake(0, 0, 400, 300)];
     EXPECT(!panel.hasVisibleContent, "fresh panel has no content");
@@ -769,27 +781,58 @@ static void TestPanel(void) {
     EXPECT([(id<UITableViewDelegate>)panel tableView:table shouldHighlightRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]] == YES,
            "timed rows are tappable");
 
-    // In wireless mode the panel must keep the previous lyric until the reuse of
-    // its already-configured 122 ms timing adjustment expires. The test captures
-    // the UI behavior without invoking the real MediaRemote seek implementation.
+    // Wireless tap-to-seek should light/centre the tapped sentence right away,
+    // but hold the word-by-word sweep for the configured 122 ms.
     SetPref(CLPrefKeyLyricsTouchControls, @YES);
     SetPref(CLPrefKeyLyricsTapSeekWirelessDelay, @YES);
-    SetPref(CLPrefKeyLyricsOffsetMs, @(-122));
+    SetPref(CLPrefKeyLyricsOffsetMs, @(-122)); // "test" source uses Other Sources offset
+    SetPref(CLPrefKeyLyricsWordHighlight, @YES);
+    SetPref(CLPrefKeyLyricsWordEstimate, @YES);
+    [panel applyPrefs];
+    panel.lyricTimeProvider = ^NSTimeInterval { return 5.4; };
     [panel setCurrentLineIndex:0 animated:NO];
+    CLPanelTapSpy *spy = [CLPanelTapSpy new];
+    panel.delegate = spy;
+    NSIndexPath *second = [NSIndexPath indexPathForRow:1 inSection:0];
+    [(id<UITableViewDelegate>)panel tableView:table didSelectRowAtIndexPath:second];
 
-    // Fake delegate receives taps synchronously; its index-change mimics the
-    // controller's optimistic seek update.
-    id oldDelegate = panel.delegate;
-    // A real delegate is installed in the full-screen integration test; for this
-    // unit test use a small self-contained selector-forwarding object below.
-    EXPECT(CLPrefs.shared.lyricsTapSeekWirelessDelay,
-           "tap wireless sync defaults can be enabled");
-    EXPECT(CLPrefs.shared.lyricsOffsetMs == -122,
-           "tap wireless sync reads configured 122 ms without another setting");
-    panel.delegate = oldDelegate;
+    EXPECT(panel.currentLineIndex == 1 && spy.calls == 1 && spy.selectedRow == 1,
+           "wireless seek: tapped sentence highlighted immediately and seek delegate notified");
+    UITableViewCell *tappedCell = [table.dataSource tableView:table cellForRowAtIndexPath:second];
+    UILabel *tappedLabel = (UILabel *)[tappedCell.contentView viewWithTag:9101];
+    EXPECT([tappedLabel.textColor isEqual:[CLLyricsStyle currentStyle].currentColor] &&
+           ![[tappedLabel valueForKey:@"wordStyled"] boolValue],
+           "wireless seek: tapped sentence is fully bright, with no premature word sweep");
+
+    // A negative sync offset can temporarily report the preceding line after a seek.
+    // It must NOT undo the immediately highlighted tapped sentence.
+    [panel setCurrentLineIndex:0 animated:NO];
+    EXPECT(panel.currentLineIndex == 1,
+           "wireless seek: pre-seek playback callback cannot reset tapped sentence");
+
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.19]];
+    tappedCell = [table.dataSource tableView:table cellForRowAtIndexPath:second];
+    tappedLabel = (UILabel *)[tappedCell.contentView viewWithTag:9101];
+    EXPECT([[tappedLabel valueForKey:@"wordStyled"] boolValue],
+           "wireless seek: word-by-word highlighting resumes after 122ms");
+
+    // Disable the delay: the tapped sentence and karaoke now both update immediately.
+    SetPref(CLPrefKeyLyricsTapSeekWirelessDelay, @NO);
+    [panel applyPrefs];
+    NSIndexPath *fourth = [NSIndexPath indexPathForRow:3 inSection:0];
+    [(id<UITableViewDelegate>)panel tableView:table didSelectRowAtIndexPath:fourth];
+    EXPECT(panel.currentLineIndex == 3 && spy.calls == 2,
+           "wired/disabled delay: tapped sentence highlights immediately");
+    UITableViewCell *instantCell = [table.dataSource tableView:table cellForRowAtIndexPath:fourth];
+    UILabel *instantLabel = (UILabel *)[instantCell.contentView viewWithTag:9101];
+    EXPECT([[instantLabel valueForKey:@"wordStyled"] boolValue],
+           "wired/disabled delay: word highlighting is not held");
+    panel.delegate = nil;
+    panel.lyricTimeProvider = nil;
     SetPref(CLPrefKeyLyricsTapSeekWirelessDelay, @NO);
     SetPref(CLPrefKeyLyricsOffsetMs, @(0));
     SetPref(CLPrefKeyLyricsTouchControls, @NO);
+    [panel applyPrefs];
 
     // A tap with no delegate must not crash.
     [(id<UITableViewDelegate>)panel tableView:table didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:0]];
