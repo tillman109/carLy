@@ -189,6 +189,17 @@ for source in sorted(glob.glob("Prefs/*.m")):
     if is_list and re.search(r"self\.tableView\b|\[self tableView\]", body):
         problems.append(f"{source}: PSListController has no -tableView on iOS 17; use self.table or -reloadSpecifiers")
 
+# Accent was removed in November 2026. Any source still using its deleted
+# CLPrefKey symbols fails at compile time, so catch it before invoking Theos.
+# Historical plain-string values remain intentionally listed in legacyKeys()
+# for resetting old installs and must not be treated as active preferences.
+deprecated_symbols = re.compile(r"\\bCLPrefKey(?:TintFromArtwork|AccentColor)\\b")
+for source in sorted(glob.glob("Prefs/*.m") + glob.glob("Tweak/**/*.m", recursive=True)):
+    with open(source, encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if deprecated_symbols.search(line):
+                problems.append(f"{source}:{line_number}: references removed Accent preference key")
+
 for problem in problems:
     print(problem)
 print(f"settings plists: {'OK' if not problems else f'{len(problems)} problem(s)'}")
