@@ -24,6 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Cheap preflight: prevent removed setting identifiers or malformed plists
+      # from wasting a full arm64 + arm64e compilation.
+      - name: Validate settings before compilation
+        run: python3 scripts/check-prefs-plists.py
+
       - name: Install dpkg (for the .deb)
         run: brew install dpkg
 
