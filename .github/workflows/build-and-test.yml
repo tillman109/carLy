@@ -86,3 +86,81 @@ jobs:
 
       - name: Run both test suites
         run: scripts/test-mac.sh
+
+      # Publish only after BOTH test suites pass, on the existing macOS runner.
+      # CARLY_REPO_TOKEN must have Contents read/write access to tillman109/repo.
+      - name: Check optional Sileo publishing credentials
+        id: repo_auth
+        env:
+          REPO_TOKEN: ${{ secrets.CARLY_REPO_TOKEN }}
+        run: |
+          if [ -n "$REPO_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Sileo publishing not configured: add CARLY_REPO_TOKEN as an Actions secret"
+          fi
+
+      - name: Checkout personal Sileo repository
+        if: steps.repo_auth.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: tillman109/repo
+          ref: main
+          token: ${{ secrets.CARLY_REPO_TOKEN }}
+          path: personal-repo
+
+      - name: Publish carLy DEB and retain last 3 versions
+        if: steps.repo_auth.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          built=(repo/debs/com.andi.carly_*.deb)
+          if (( ${#built[@]} != 1 )); then
+            echo "::error::Expected exactly one carLy DEB, found ${#built[@]}"
+            exit 1
+          fi
+
+          mkdir -p personal-repo/debs
+          cp -- "${built[0]}" personal-repo/debs/
+
+          # Only delete older carLy versions. Never touch CarPlay26 or another tweak.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path("personal-repo/debs")
+          files = list(root.glob("com.andi.carly_*.deb"))
+          rx = re.compile(r"^com\.andi\.carly_(.+)_(iphoneos-arm64|iphoneos-arm64e)\.deb$")
+          found = {}
+          for f in files:
+              match = rx.fullmatch(f.name)
+              if not match:
+                  raise SystemExit("Unexpected carLy package name: " + f.name)
+              found.setdefault(match.group(1), []).append(f)
+          if not found:
+              raise SystemExit("No carLy DEBs found after copy")
+          def natural_key(value):
+              return tuple((0, int(part)) if part.isdigit() else (1, part.lower())
+                           for part in re.split(r"(\d+)", value))
+          versions = sorted(found, key=natural_key)
+          keep = set(versions[-3:])
+          print("Retaining carLy versions:", ", ".join(versions[-3:]))
+          for version, packages in found.items():
+              if version not in keep:
+                  for package in packages:
+                      print("Retiring", package.name)
+                      package.unlink()
+          PY
+
+          cd personal-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- debs/
+          if git diff --cached --quiet; then
+            echo "carLy DEB already published"
+            exit 0
+          fi
+          git commit -m "Publish carLy development build (retain latest 3)"
+          # A PAT-backed push triggers tillman109/repo's existing Pages publish.
+          git push origin HEAD:main
