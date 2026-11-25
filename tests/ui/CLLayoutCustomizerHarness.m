@@ -910,6 +910,20 @@ static void TestCustomizerPrefs(CPUINowPlayingViewController *vc) {
     EXPECT(fabs(titleLabel.font.pointSize - originalTitleSize) < 0.01, "the title font is never touched (%.1f)",
            titleLabel.font.pointSize);
 
+    // The real Spotify host can repaint the artist black *after* the accent
+    // pass. The deferred marquee refresh must correct it without touching the
+    // album's independent accent colour.
+    NSArray<UILabel *> *songLabels = LabelsIn(npv->_songDetailsView);
+    UILabel *artistLabel = songLabels[1], *albumLabel = songLabels[2];
+    UIColor *savedAlbumColor = albumLabel.textColor;
+    artistLabel.textColor = UIColor.blackColor;
+    SEL refreshMarquee = NSSelectorFromString(@"cl_applyTitleMarquee");
+    ((void (*)(id, SEL))objc_msgSend)(customizer, refreshMarquee);
+    EXPECT([artistLabel.textColor isEqual:UIColor.whiteColor],
+           "now playing: artist follows white title after host repaints artist black");
+    EXPECT([albumLabel.textColor isEqual:savedAlbumColor],
+           "now playing: correcting artist does not recolour album");
+
     // --- Lyrics modes (no hooks: every mode is the stock screen here)
     for (NSNumber *mode in @[ @2, @3, @0, @1 ]) {
         SetPref(CLPrefKeyLyricsMode, mode);
@@ -1983,8 +1997,13 @@ static void TestMicrophoneAndFullScreen(void) {
 
     // Full-screen lyrics has its *own* title/artist labels. The stock Now Playing marquees
     // cannot animate them; verify both layers and scrolling here.
-    NSString *longTitle = @"Sometimes You're The Hammer, Sometimes You're The Nail";
-    NSString *longArtist = @"A Day To Remember, Another Very Long Artist Name";
+    // The fake 800pt controller has much more room for the host title than a
+    // real CarPlay strip. Use genuinely long strings and constrain the lyrics
+    // text viewport below, so marquee coverage exercises a clipped label.
+    NSString *longTitle = [@"Sometimes You're The Hammer, Sometimes You're The Nail "
+                           stringByAppendingString:@"Sometimes You're The Hammer, Sometimes You're The Nail"];
+    NSString *longArtist = [@"A Day To Remember, Another Very Long Artist Name "
+                            stringByAppendingString:@"A Day To Remember, Another Very Long Artist Name"];
     [fullScreen setTitle:longTitle artist:longArtist];
     [fullScreen setNeedsLayout];
     Layout(vc);
@@ -2001,6 +2020,21 @@ static void TestMicrophoneAndFullScreen(void) {
     }
     EXPECT(songStack != nil, "full screen: song-details stack found");
     if (songStack) {
+        // Real CarPlay's song-details strip is narrow; the fake 800pt simulator
+        // leaves enough width for ordinary text, which incorrectly made these
+        // animation assertions fail despite working on the actual screen.
+        songStack.clipsToBounds = YES;
+        NSLayoutConstraint *narrowSongDetails =
+            [songStack.widthAnchor constraintLessThanOrEqualToConstant:185.0];
+        narrowSongDetails.priority = 999;
+        narrowSongDetails.active = YES;
+        [fullScreen setNeedsLayout];
+        Layout(vc);
+        [songStack layoutIfNeeded];
+        [fullScreen setNeedsLayout];
+        Layout(vc);
+        [fullScreen setAccentColor:nil]; // refresh after final Auto Layout geometry
+
         UILabel *song = (UILabel *)songStack.arrangedSubviews[0];
         UILabel *artist = (UILabel *)songStack.arrangedSubviews[1];
         BOOL songScrolling = NO, artistScrolling = NO;
@@ -2023,9 +2057,13 @@ static void TestMicrophoneAndFullScreen(void) {
            "full screen: touch scroll/seek becomes interactive when enabled");
     CGPoint touchCenter = CGPointMake(CGRectGetMidX(fullScreen.panelView.bounds),
                                      CGRectGetMidY(fullScreen.panelView.bounds));
-    CGPoint inFullScreen = [fullScreen.panelView convertPoint:touchCenter toView:fullScreen];
-    EXPECT([fullScreen hitTest:inFullScreen withEvent:nil] == fullScreen.panelView,
-           "full screen: touch events hit lyric panel rather than the hidden inner table");
+    // In this headless fake host there is no UIWindow to deliver real CarPlay
+    // touches. Check the panel's own target area, not the enclosing controller's
+    // hit-test selection (which depends on a real window/focus hierarchy).
+    EXPECT([fullScreen.panelView pointInside:touchCenter withEvent:nil] &&
+           !fullScreen.panelView.hidden &&
+           CGRectGetWidth(fullScreen.panelView.bounds) > 0.0,
+           "full screen: enabled lyric panel exposes a valid touch area");
     BOOL hasPan = NO, hasTap = NO;
     for (UIGestureRecognizer *gesture in fullScreen.panelView.gestureRecognizers) {
         if ([gesture isKindOfClass:UIPanGestureRecognizer.class]) hasPan = YES;

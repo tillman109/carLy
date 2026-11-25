@@ -1663,6 +1663,23 @@ static BOOL CLSongTitleLooksLight(UIColor *color, UITraitCollection *traits) {
     UILabel *artist = labels.count >= 2 ? labels[1] : nil;
     [_titleMarquee updateForLabel:title sourceText:sameApp ? state.title : nil];
     [_artistMarquee updateForLabel:artist sourceText:sameApp ? state.artist : nil];
+
+    // The host can repaint an artist UILabel *after* the tint pass, including
+    // during track transitions and its own layout callbacks. Reconcile the
+    // artist's visible colour after creating/updating its scrolling layer so
+    // the last writer is our dark-mode contrast rule, not Spotify's black.
+    // Neither the title nor the album is modified here.
+    UIColor *titleColor = [_titleMarquee visibleColorForLabel:title] ?: title.textColor;
+    BOOL darkTitle = title && (CLSongTitleLooksLight(titleColor, title.traitCollection) ||
+                               title.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
+    if (darkTitle && artist && !artist.isHidden) {
+        UIColor *readableColor = titleColor ?: UIColor.whiteColor;
+        if (![_savedLabelColors objectForKey:artist]) {
+            UIColor *prior = [_artistMarquee visibleColorForLabel:artist] ?: artist.textColor;
+            [_savedLabelColors setObject:(prior ?: UIColor.labelColor) forKey:artist];
+        }
+        [_artistMarquee setVisibleTextColor:readableColor forLabel:artist];
+    }
 }
 
 #pragma mark - Album label
