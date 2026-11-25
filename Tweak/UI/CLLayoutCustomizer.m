@@ -1593,17 +1593,17 @@ static BOOL CLSongTitleLooksLight(UIColor *color, UITraitCollection *traits) {
 
 - (void)cl_restoreAccentTint {
     if (!_tintStateSaved && _savedLabelColors.count == 0) return;
-    UIView *progress = _progressView;
-    if (progress) {
-        progress.tintColor = _savedProgressTintColor;
-        // _savedProgressTintColor is legitimately nil when _progressView was unresolved at the
-        // moment the state was saved; CLSetValueForKey refuses a nil value rather than hand it to
-        // a setter that may not take one.
-        if (_savedProgressTintColor && CLResponds(progress, @"setProgressTintColor:")) {
-            CLSetValueForKey(progress, @"progressTintColor", _savedProgressTintColor);
+    if (_tintStateSaved) {
+        UIView *progress = _progressView;
+        if (progress) {
+            progress.tintColor = _savedProgressTintColor;
+            // The saved tint can be nil if _progressView wasn't resolved yet.
+            if (_savedProgressTintColor && CLResponds(progress, @"setProgressTintColor:")) {
+                CLSetValueForKey(progress, @"progressTintColor", _savedProgressTintColor);
+            }
         }
+        _nowPlayingView.tintColor = _savedNowPlayingTintColor;
     }
-    _nowPlayingView.tintColor = _savedNowPlayingTintColor;
     NSArray<UILabel *> *labels = [self cl_songDetailsLabels];
     UILabel *artist = labels.count >= 2 ? labels[1] : nil;
     for (UILabel *label in [[_savedLabelColors keyEnumerator] allObjects]) {

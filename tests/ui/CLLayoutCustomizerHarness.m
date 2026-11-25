@@ -24,6 +24,7 @@
 #import "UI/CLLyricsPanelView.h"
 #import "UI/CLLayoutCustomizer.h"
 #import "UI/CLLayoutGeometry.h"
+#import "UI/CLSongMarquee.h"
 #import "UI/CLLyricsStyle.h"
 #import "Util/CLPrefs.h"
 #import "Util/CLPrefsKeys.h"
@@ -86,6 +87,17 @@ static void TestSongMarquees(void) {
                "artist marquee uses the system-font raster layer");
         EXPECT([artistLayer animationForKey:@"cl-song-scroll"] != nil,
                "artist marquee animates separately from title");
+        // A dark-mode contrast correction must recolour an ALREADY scrolling
+        // artist, without stopping or restarting the animation.
+        CAAnimation *originalAnimation = [artistLayer animationForKey:@"cl-song-scroll"];
+        [(CLSongMarquee *)artistMarquee setVisibleTextColor:UIColor.whiteColor forLabel:artist];
+        EXPECT([[(CLSongMarquee *)artistMarquee visibleColorForLabel:artist] isEqual:UIColor.whiteColor],
+               "artist marquee uses title-white during dark CarPlay");
+        EXPECT([artist.textColor isEqual:UIColor.clearColor] &&
+               [artistLayer animationForKey:@"cl-song-scroll"] != nil,
+               "artist repaint preserves the scrolling overlay");
+        EXPECT(originalAnimation != nil && artistLayer.contents != nil,
+               "artist repaint preserves an opaque-free image layer");
     }
 
     ((void (*)(id, SEL))objc_msgSend)(titleMarquee, stop);
