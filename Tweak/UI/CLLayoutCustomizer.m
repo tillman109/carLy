@@ -57,6 +57,28 @@ static NSArray<UILabel *> *CLLabelsIn(UIView *root, NSUInteger limit) {
     return labels;
 }
 
+// The host's private song detail hierarchy can reorder title, artist and album.
+// Prefer an exact metadata match, then a known ellipsis prefix, before index fallback.
+static BOOL CLDetailsTextMatches(UILabel *label, NSString *metadata) {
+    if (!label || !metadata.length) return NO;
+    NSString *text = label.attributedText.string ?: label.text;
+    if (!text.length) return NO;
+    if ([text caseInsensitiveCompare:metadata] == NSOrderedSame) return YES;
+    NSString *prefix = nil;
+    if ([text hasSuffix:@"..."]) prefix = [text substringToIndex:text.length - 3];
+    else if ([text hasSuffix:@"…"]) prefix = [text substringToIndex:text.length - 1];
+    prefix = [prefix stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    return prefix.length >= 2 &&
+        [metadata rangeOfString:prefix options:(NSCaseInsensitiveSearch | NSAnchoredSearch)].location == 0;
+}
+
+static UILabel *CLDetailsLabel(NSArray<UILabel *> *labels, NSString *metadata, NSUInteger fallback) {
+    for (UILabel *label in labels) {
+        if (CLDetailsTextMatches(label, metadata)) return label;
+    }
+    return fallback < labels.count ? labels[fallback] : nil;
+}
+
 /// Average colour of an image, sampled from an 8x8 downscale, pushed towards something readable
 /// on a dark screen. Returns nil when the image cannot be rasterised.
 static UIColor *CLAverageArtworkColor(UIImage *image) {
@@ -353,6 +375,7 @@ static BOOL sHostColumnHooksInstalled = NO;
     UIColor *_savedProgressTintColor;
     UIColor *_savedNowPlayingTintColor;
     NSMapTable<UILabel *, UIColor *> *_savedLabelColors;
+    NSMapTable<UILabel *, NSAttributedString *> *_savedArtistAttributedText;
     __weak UILabel *_hiddenAlbumLabel;
     BOOL _savedAlbumLabelHidden;
     NSMutableArray<UIBarButtonItem *> *_hiddenBarItems;
@@ -460,6 +483,7 @@ static BOOL sHostColumnHooksInstalled = NO;
     self = [super init];
     if (self) {
         _savedLabelColors = [NSMapTable weakToStrongObjectsMapTable];
+        _savedArtistAttributedText = [NSMapTable weakToStrongObjectsMapTable];
         _hiddenBarItems = [NSMutableArray array];
         _screenMatchedNowPlaying = YES;
         _pressedCommand = -1;
@@ -674,9 +698,21 @@ static BOOL sHostColumnHooksInstalled = NO;
 /// title stays at index 0, the artist at 1 and (the hypothesis) the album at 2.
 - (NSArray<UILabel *> *)cl_songDetailsLabels {
     if (_passCacheActive && _passLabels) return _passLabels;
-    NSArray<UILabel *> *labels = CLLabelsIn(_songDetailsView, 8);
+    NSArray<UILabel *> *labels = CLLabelsIn(_songDetailsView, 16);
     if (_passCacheActive) _passLabels = labels;
     return labels;
+}
+
+- (UILabel *)cl_titleLabelIn:(NSArray<UILabel *> *)labels {
+    return CLDetailsLabel(labels, CLLyricsController.sharedController.currentState.title, 0);
+}
+
+- (UILabel *)cl_artistLabelIn:(NSArray<UILabel *> *)labels {
+    return CLDetailsLabel(labels, CLLyricsController.sharedController.currentState.artist, 1);
+}
+
+- (UILabel *)cl_albumLabelIn:(NSArray<UILabel *> *)labels {
+    return CLDetailsLabel(labels, CLLyricsController.sharedController.currentState.album, 2);
 }
 
 /// The artwork image, resolved at most once per layout pass (the backdrop and the accent colour
@@ -1525,6 +1561,53 @@ static BOOL CLSongTitleLooksLight(UIColor *color, UITraitCollection *traits) {
     return CLColorFromHexOrNil(_accentColorHex);
 }
 
+// Spotify sometimes renders the artist with an explicit black foreground
+// attribute. UILabel.textColor does not override NSForegroundColorAttributeName.
+// Keep all other attributes, including font and accessibility text, unchanged.
+- (void)cl_applyArtistContrast:(UIColor *)color label:(UILabel *)artist {
+    if (!artist || !color) return;
+    if (![_savedLabelColors objectForKey:artist]) {
+        UIColor *prior = [_artistMarquee visibleColorForLabel:artist] ?: artist.textColor;
+        [_savedLabelColors setObject:(prior ?: UIColor.labelColor) forKey:artist];
+    }
+    [_artistMarquee setVisibleTextColor:color forLabel:artist];
+    if ([artist.textColor isEqual:UIColor.clearColor]) return; // marquee owns text rendering
+
+    NSAttributedString *current = artist.attributedText;
+    if (!current.length) return;
+    NSAttributedString *saved = [_savedArtistAttributedText objectForKey:artist];
+    if (saved && ![saved.string isEqualToString:current.string]) {
+        [_savedArtistAttributedText removeObjectForKey:artist];
+        saved = nil;
+    }
+    __block BOOL explicitMismatch = NO;
+    [current enumerateAttribute:NSForegroundColorAttributeName
+                        inRange:NSMakeRange(0, current.length)
+                        options:0
+                     usingBlock:^(id value, NSRange range, BOOL *stop) {
+        if ([value isKindOfClass:UIColor.class] && ![(UIColor *)value isEqual:color]) {
+            explicitMismatch = YES;
+            *stop = YES;
+        }
+    }];
+    if (!explicitMismatch) return;
+    if (!saved) [_savedArtistAttributedText setObject:[current copy] forKey:artist];
+    NSMutableAttributedString *updated = [current mutableCopy];
+    [updated addAttribute:NSForegroundColorAttributeName value:color
+                   range:NSMakeRange(0, updated.length)];
+    artist.attributedText = updated;
+    CLLogDebug(@"[ui] artist contrast: repaired explicit attributed foreground");
+}
+
+- (void)cl_restoreArtistAttributedText {
+    for (UILabel *artist in [[_savedArtistAttributedText keyEnumerator] allObjects]) {
+        NSAttributedString *original = [_savedArtistAttributedText objectForKey:artist];
+        if (original && [original.string isEqualToString:artist.attributedText.string])
+            artist.attributedText = original;
+    }
+    [_savedArtistAttributedText removeAllObjects];
+}
+
 - (void)cl_applyAccentTint {
     UIColor *accent = _prefEnabled ? [self cl_accentColor] : nil;
     UIView *progress = _progressView;
@@ -1536,18 +1619,15 @@ static BOOL CLSongTitleLooksLight(UIColor *color, UITraitCollection *traits) {
         if (_tintStateSaved) [self cl_restoreAccentTint];
         NSArray<UILabel *> *labels = [self cl_songDetailsLabels];
         if (labels.count >= 2) {
-            UILabel *title = labels[0], *artist = labels[1];
+            UILabel *title = [self cl_titleLabelIn:labels], *artist = [self cl_artistLabelIn:labels];
             UIColor *titleColour = [_titleMarquee visibleColorForLabel:title] ?: title.textColor;
             BOOL dark = artist.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark ||
                         CLSongTitleLooksLight(titleColour, title.traitCollection);
             if (dark) {
-                if (![_savedLabelColors objectForKey:artist]) {
-                    UIColor *prior = [_artistMarquee visibleColorForLabel:artist] ?: artist.textColor;
-                    [_savedLabelColors setObject:(prior ?: UIColor.labelColor) forKey:artist];
-                }
-                [_artistMarquee setVisibleTextColor:(titleColour ?: UIColor.labelColor) forLabel:artist];
+                [self cl_applyArtistContrast:(titleColour ?: UIColor.labelColor) label:artist];
             } else if ([_savedLabelColors objectForKey:artist]) {
                 UIColor *prior = [_savedLabelColors objectForKey:artist];
+                [self cl_restoreArtistAttributedText];
                 [_artistMarquee setVisibleTextColor:prior forLabel:artist];
                 [_savedLabelColors removeObjectForKey:artist];
             }
@@ -1571,28 +1651,36 @@ static BOOL CLSongTitleLooksLight(UIColor *color, UITraitCollection *traits) {
     }
     if (nowPlayingView && nowPlayingView.tintColor != accent) nowPlayingView.tintColor = accent;
 
-    // Keep the album's artwork accent unchanged. Only the ARTIST should match
-    // the song title when its white/light foreground indicates a dark CarPlay UI.
+    // Album keeps the artwork tint; only ARTIST follows the title on dark UI.
+    // Match real metadata rather than assuming private UIKit label indices.
     NSArray<UILabel *> *labels = [self cl_songDetailsLabels];
-    UILabel *title = labels.firstObject;
+    UILabel *title = [self cl_titleLabelIn:labels];
+    UILabel *artist = [self cl_artistLabelIn:labels];
+    UILabel *album = [self cl_albumLabelIn:labels];
     UIColor *titleColour = [_titleMarquee visibleColorForLabel:title] ?: title.textColor;
-    BOOL brightTitle = title && CLSongTitleLooksLight(titleColour, title.traitCollection);
-    for (NSUInteger i = 1; i < labels.count && i < 3; i++) {
-        UILabel *label = labels[i];
-        if (![_savedLabelColors objectForKey:label]) {
-            UIColor *prior = i == 1 ? [_artistMarquee visibleColorForLabel:label] : label.textColor;
-            [_savedLabelColors setObject:(prior ?: UIColor.labelColor) forKey:label];
+    BOOL dark = (title && CLSongTitleLooksLight(titleColour, title.traitCollection)) ||
+                artist.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    if (artist && artist != title) {
+        if (dark) {
+            [self cl_applyArtistContrast:(titleColour ?: UIColor.whiteColor) label:artist];
+        } else {
+            if (![_savedLabelColors objectForKey:artist]) {
+                UIColor *prior = [_artistMarquee visibleColorForLabel:artist] ?: artist.textColor;
+                [_savedLabelColors setObject:(prior ?: UIColor.labelColor) forKey:artist];
+            }
+            [_artistMarquee setVisibleTextColor:accent forLabel:artist];
         }
-        UIColor *wanted = (i == 1 && (brightTitle ||
-            label.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark))
-            ? (titleColour ?: UIColor.labelColor) : accent;
-        if (i == 1) [_artistMarquee setVisibleTextColor:wanted forLabel:label];
-        else if (![label.textColor isEqual:wanted]) label.textColor = wanted;
+    }
+    if (album && album != title && album != artist) {
+        if (![_savedLabelColors objectForKey:album])
+            [_savedLabelColors setObject:(album.textColor ?: UIColor.labelColor) forKey:album];
+        if (![album.textColor isEqual:accent]) album.textColor = accent;
     }
 }
 
 - (void)cl_restoreAccentTint {
-    if (!_tintStateSaved && _savedLabelColors.count == 0) return;
+    if (!_tintStateSaved && _savedLabelColors.count == 0 && _savedArtistAttributedText.count == 0) return;
+    [self cl_restoreArtistAttributedText];
     if (_tintStateSaved) {
         UIView *progress = _progressView;
         if (progress) {
@@ -1605,7 +1693,7 @@ static BOOL CLSongTitleLooksLight(UIColor *color, UITraitCollection *traits) {
         _nowPlayingView.tintColor = _savedNowPlayingTintColor;
     }
     NSArray<UILabel *> *labels = [self cl_songDetailsLabels];
-    UILabel *artist = labels.count >= 2 ? labels[1] : nil;
+    UILabel *artist = [self cl_artistLabelIn:labels];
     for (UILabel *label in [[_savedLabelColors keyEnumerator] allObjects]) {
         UIColor *original = [_savedLabelColors objectForKey:label];
         if (!original) continue;
@@ -1659,8 +1747,8 @@ static BOOL CLSongTitleLooksLight(UIColor *color, UITraitCollection *traits) {
         _artistMarquee = [CLSongMarquee new];
         _artistMarquee.role = @"artist";
     }
-    UILabel *title = labels.firstObject;
-    UILabel *artist = labels.count >= 2 ? labels[1] : nil;
+    UILabel *title = [self cl_titleLabelIn:labels];
+    UILabel *artist = [self cl_artistLabelIn:labels];
     [_titleMarquee updateForLabel:title sourceText:sameApp ? state.title : nil];
     [_artistMarquee updateForLabel:artist sourceText:sameApp ? state.artist : nil];
 
@@ -1674,11 +1762,7 @@ static BOOL CLSongTitleLooksLight(UIColor *color, UITraitCollection *traits) {
                                title.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
     if (darkTitle && artist && !artist.isHidden) {
         UIColor *readableColor = titleColor ?: UIColor.whiteColor;
-        if (![_savedLabelColors objectForKey:artist]) {
-            UIColor *prior = [_artistMarquee visibleColorForLabel:artist] ?: artist.textColor;
-            [_savedLabelColors setObject:(prior ?: UIColor.labelColor) forKey:artist];
-        }
-        [_artistMarquee setVisibleTextColor:readableColor forLabel:artist];
+        [self cl_applyArtistContrast:readableColor label:artist];
     }
 }
 

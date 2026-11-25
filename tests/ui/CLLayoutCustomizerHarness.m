@@ -917,10 +917,17 @@ static void TestCustomizerPrefs(CPUINowPlayingViewController *vc) {
     UILabel *artistLabel = songLabels[1], *albumLabel = songLabels[2];
     UIColor *savedAlbumColor = albumLabel.textColor;
     artistLabel.textColor = UIColor.blackColor;
+    artistLabel.attributedText = [[NSAttributedString alloc] initWithString:artistLabel.text
+        attributes:@{ NSFontAttributeName: artistLabel.font,
+                      NSForegroundColorAttributeName: UIColor.blackColor }];
     SEL refreshMarquee = NSSelectorFromString(@"cl_applyTitleMarquee");
     ((void (*)(id, SEL))objc_msgSend)(customizer, refreshMarquee);
     EXPECT([artistLabel.textColor isEqual:UIColor.whiteColor],
            "now playing: artist follows white title after host repaints artist black");
+    UIColor *foreground = [artistLabel.attributedText attribute:NSForegroundColorAttributeName
+                                                       atIndex:0 effectiveRange:NULL];
+    EXPECT([foreground isEqual:UIColor.whiteColor],
+           "now playing: explicitly black attributed artist text gets recoloured");
     EXPECT([albumLabel.textColor isEqual:savedAlbumColor],
            "now playing: correcting artist does not recolour album");
 
