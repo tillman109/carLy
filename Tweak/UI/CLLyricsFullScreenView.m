@@ -14,8 +14,6 @@ static const CGFloat kCLFullScreenProgressHeight = CLLayoutFullScreenProgressHei
 static const CGFloat kCLFullScreenProgressBarThickness = CLLayoutFullScreenProgressThickness;
 /// Keep the same touch-target width as the host while centring all three controls.
 static const CGFloat kCLFullScreenTransportExtraWidth = 20.0;
-static const CGFloat kCLFullScreenPlayModeButtonWidth = 44.0;
-static const CGFloat kCLFullScreenPlayModeButtonHeight = CLLayoutFullScreenPlayModeHeight;
 /// The progress line's time labels and their gap to the bar.
 static const CGFloat kCLFullScreenTimeWidth = 40.0;
 static const CGFloat kCLFullScreenTimeGap = 8.0;
