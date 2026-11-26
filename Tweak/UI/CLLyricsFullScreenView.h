@@ -1,8 +1,7 @@
-// Owned by the ui slice. The full-screen lyrics view the microphone button in the host's play-mode
-// row opens (0.7.0): the lyrics across the whole safe area, and one row under them with the song's
-// title and artist on the left and previous / play-pause / next / close on the right. It covers the
-// host's Now Playing view (the customizer hides that while it is up), so it fits every screen shape,
-// including the ones where no split layout fits (the CarPlay Simulator's "Minimum").
+// Owned by the UI slice. The full-screen lyrics view opened from the native microphone
+// has Now Playing's SAME three footer rows: previous/play/next, progress and the five
+// play-mode controls. Title and artist remain on a separate compact strip above transport.
+// The host's player hides underneath; only the visible controls are mirrored.
 //
 // UIKit/QuartzCore. Main thread only. Lyrics touch controls are opt-in; the inner table stays
 // non-focusable to preserve CarPlay rotary controls. The four buttons remain ordinary UIButtons.
@@ -37,6 +36,8 @@ FOUNDATION_EXPORT UIButton *CLMakeHostStyleButton(BOOL prefersWhite);
 @property (nonatomic, readonly) CLLyricsPanelView *panelView;
 /// Previous, play/pause, next, close — in that order (tests and focus logging).
 @property (nonatomic, readonly) NSArray<UIButton *> *controlButtons;
+/// Visible play-mode mirror buttons plus carLy's close microphone, in stock order.
+@property (nonatomic, readonly) NSArray<UIButton *> *playModeButtons;
 
 /// The row's song line. Empty strings and nil hide the respective label.
 - (void)setTitle:(nullable NSString *)title artist:(nullable NSString *)artist;
@@ -48,6 +49,9 @@ FOUNDATION_EXPORT UIButton *CLMakeHostStyleButton(BOOL prefersWhite);
                nextImage:(nullable UIImage *)next buttonHeight:(CGFloat)buttonHeight;
 /// The microphone glyph, sized like the host's play-mode icons (nil keeps the fallback).
 - (void)setMicrophoneImage:(nullable UIImage *)image;
+/// Clone the host's visible play-mode icons and selection states, forwarding taps
+/// to the original buttons even while the native Now Playing view is hidden.
+- (void)setHostPlayModeButtons:(NSArray<UIButton *> *)buttons hostWidth:(CGFloat)hostWidth;
 /// What plays now: drives the thin progress line above the controls (elapsed, bar, remaining),
 /// which interpolates between samples twice a second and hides while the length is unknown.
 - (void)setPlaybackState:(nullable CLPlaybackState *)state;
