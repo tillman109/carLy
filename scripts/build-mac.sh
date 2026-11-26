@@ -1,27 +1,24 @@
 #!/bin/sh
-# Build the carLy package on macOS with Xcode's clang.
-#
-# Why this exists: the on-device Procursus clang cannot pointer-authenticate Objective-C class
-# metadata (isa/superclass), so its arm64e slice crashes CarPlayTemplateUIHost at load. Xcode's
-# clang signs it correctly. Build here, install the resulting deb on the phone.
-#
-# Run ON THE MAC, from anywhere:
-#   cd ~/Documents/diffMusicCarplay && ./scripts/build-mac.sh
-#
-# This Mac has Xcode but not ldid or xz (no Homebrew), so we sign with the system codesign
-# (ad-hoc) and compress the deb with gzip. Both are accepted by the device package manager and
-# by ElleKit. Install ldid + xz (e.g. via Homebrew) if you ever want a plain `make package`.
-set -e
-export THEOS="${THEOS:-$HOME/theos}"
+# Build carLy as a native RootHide iphoneos-arm64e package on macOS.
+# Xcode clang must compile both arm64 and arm64e slices; ldid signs the dylib.
+# Requires roothide/theos, Xcode, ldid-procursus and dpkg.
+set -eu
+export THEOS="${THEOS:-$HOME/theos-roothide}"
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
-make clean
-make package FINALPACKAGE=1 \
-    TARGET_CODESIGN=codesign \
-    TARGET_CODESIGN_FLAGS="-f -s -" \
-    THEOS_PLATFORM_DEB_COMPRESSION_TYPE=gzip \
-    "$@"
+if [ ! -f "$THEOS/vendor/mod/roothide/package/deb.mk" ]; then
+    echo "RootHide Theos required at $THEOS" >&2
+    exit 1
+fi
+command -v ldid >/dev/null || { echo "Install ldid-procursus first" >&2; exit 1; }
+command -v dpkg-deb >/dev/null || { echo "Install dpkg first" >&2; exit 1; }
 
-echo
-echo "Built package:"
-ls -1 packages/*.deb
+make clean
+make package FINALPACKAGE=1 TARGET_CODESIGN=ldid "$@"
+
+for deb in packages/*.deb; do
+    [ -f "$deb" ] || { echo "No package produced" >&2; exit 1; }
+    [ "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64e" ] ||
+        { echo "Not a RootHide-native package: $deb" >&2; exit 1; }
+    echo "RootHide-native package: $deb"
+done
