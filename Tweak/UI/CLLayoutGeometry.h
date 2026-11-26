@@ -212,36 +212,67 @@ static const CGFloat CLLayoutPanelTopGap = 8.0;
 
 #pragma mark - Full-screen lyrics (CLLyricsFullScreenView in the car, CLLayoutPreviewView in Settings)
 
-/// The row at the bottom (title/artist, previous / play-pause / next, the microphone): 44 pt tall,
-/// 8 pt above the safe area's bottom, from the host's 27 pt title margin to 12 pt before the edge.
-static const CGFloat CLLayoutFullScreenRowHeight = 44.0, CLLayoutFullScreenRowBottom = 8.0;
-static const CGFloat CLLayoutFullScreenRowLeading = 27.0, CLLayoutFullScreenRowTrailing = 12.0;
-/// The progress line: 14 pt tall, 2 pt above the row, as wide as the row; its bar is 3 pt thick.
-static const CGFloat CLLayoutFullScreenProgressHeight = 14.0, CLLayoutFullScreenProgressGap = 2.0;
+// Match stock Now Playing's THREE independent footer rows:
+// 1) transport controls, 2) timeline, 3) five play-mode buttons.
+// The gaps scale down on short CarPlay screens; the icon sizes do not shrink.
+static const CGFloat CLLayoutFullScreenRowHeight = 44.0;
+static const CGFloat CLLayoutFullScreenRowLeading = 27.0, CLLayoutFullScreenRowTrailing = 27.0;
+static const CGFloat CLLayoutFullScreenPlayModeHeight = 26.0;
+static const CGFloat CLLayoutFullScreenPlayModeBottom = 46.0;
+static const CGFloat CLLayoutFullScreenProgressBelowTransport = 28.0;
+static const CGFloat CLLayoutFullScreenProgressAbovePlayMode = 30.0;
+static const CGFloat CLLayoutFullScreenProgressHeight = 14.0;
 static const CGFloat CLLayoutFullScreenProgressThickness = 3.0;
-/// The lyrics: 8 pt under the safe area's top, 4 pt above the progress line, the full panel's inset.
-static const CGFloat CLLayoutFullScreenLyricsTop = 8.0, CLLayoutFullScreenLyricsGap = 4.0;
-/// Narrower than this, the row drops the title and artist.
-static const CGFloat CLLayoutFullScreenMinimumWidthForText = 380.0;
+static const CGFloat CLLayoutFullScreenSongInfoGap = 8.0;
+static const CGFloat CLLayoutFullScreenSongInfoHeight = 36.0;
+static const CGFloat CLLayoutFullScreenLyricsTop = 8.0, CLLayoutFullScreenLyricsGap = 8.0;
 
-/// The rects of the full-screen view for a safe area (the view covers exactly the safe area).
-static inline CGRect CLLayoutFullScreenRowRect(CGRect safe) {
+// Preserve a usable lyric viewport on short / unusual CarPlay display shapes.
+// The normal 700+ point screens use exactly the screenshot's stock-row spacing.
+static inline CGFloat CLLayoutFullScreenSpacingScale(CGFloat height) {
+    return MAX(0.45, MIN(1.0, height / 700.0));
+}
+
+static inline CGRect CLLayoutFullScreenPlayModeRect(CGRect safe) {
+    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
     return CGRectMake(CGRectGetMinX(safe) + CLLayoutFullScreenRowLeading,
-                      CGRectGetMaxY(safe) - CLLayoutFullScreenRowBottom - CLLayoutFullScreenRowHeight,
-                      CGRectGetWidth(safe) - CLLayoutFullScreenRowLeading - CLLayoutFullScreenRowTrailing,
-                      CLLayoutFullScreenRowHeight);
+                      CGRectGetMaxY(safe) - CLLayoutFullScreenPlayModeBottom * scale -
+                          CLLayoutFullScreenPlayModeHeight,
+                      MAX(0.0, CGRectGetWidth(safe) - CLLayoutFullScreenRowLeading -
+                          CLLayoutFullScreenRowTrailing),
+                      CLLayoutFullScreenPlayModeHeight);
 }
 static inline CGRect CLLayoutFullScreenProgressRect(CGRect safe) {
-    CGRect row = CLLayoutFullScreenRowRect(safe);
-    return CGRectMake(CGRectGetMinX(row), CGRectGetMinY(row) - CLLayoutFullScreenProgressGap - CLLayoutFullScreenProgressHeight,
-                      CGRectGetWidth(row), CLLayoutFullScreenProgressHeight);
+    CGRect mode = CLLayoutFullScreenPlayModeRect(safe);
+    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
+    return CGRectMake(CGRectGetMinX(mode),
+                      CGRectGetMinY(mode) - CLLayoutFullScreenProgressAbovePlayMode * scale -
+                          CLLayoutFullScreenProgressHeight,
+                      CGRectGetWidth(mode), CLLayoutFullScreenProgressHeight);
+}
+static inline CGRect CLLayoutFullScreenRowRect(CGRect safe) {
+    CGRect progress = CLLayoutFullScreenProgressRect(safe);
+    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
+    return CGRectMake(CGRectGetMinX(progress),
+                      CGRectGetMinY(progress) - CLLayoutFullScreenProgressBelowTransport * scale -
+                          CLLayoutFullScreenRowHeight,
+                      CGRectGetWidth(progress), CLLayoutFullScreenRowHeight);
+}
+static inline CGRect CLLayoutFullScreenSongInfoRect(CGRect safe) {
+    CGRect transport = CLLayoutFullScreenRowRect(safe);
+    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
+    return CGRectMake(CGRectGetMinX(transport),
+                      CGRectGetMinY(transport) - CLLayoutFullScreenSongInfoGap * scale -
+                          CLLayoutFullScreenSongInfoHeight,
+                      CGRectGetWidth(transport), CLLayoutFullScreenSongInfoHeight);
 }
 static inline CGRect CLLayoutFullScreenLyricsRect(CGRect safe) {
-    CGRect progress = CLLayoutFullScreenProgressRect(safe);
+    CGRect info = CLLayoutFullScreenSongInfoRect(safe);
     CGFloat top = CGRectGetMinY(safe) + CLLayoutFullScreenLyricsTop;
+    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
     return CGRectMake(CGRectGetMinX(safe) + CLLayoutFullPanelLyricsInset, top,
-                      CGRectGetWidth(safe) - 2.0 * CLLayoutFullPanelLyricsInset,
-                      MAX(0.0, CGRectGetMinY(progress) - CLLayoutFullScreenLyricsGap - top));
+                      MAX(0.0, CGRectGetWidth(safe) - 2.0 * CLLayoutFullPanelLyricsInset),
+                      MAX(0.0, CGRectGetMinY(info) - CLLayoutFullScreenLyricsGap * scale - top));
 }
 
 #pragma mark - Panel font fit (CLLyricsPanelView in the car, CLLayoutPreviewView in Settings)
