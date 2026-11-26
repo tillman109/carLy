@@ -4,6 +4,9 @@
 #import "UI/CLLayoutGeometry.h"
 #import <CoreFoundation/CoreFoundation.h>
 #import <os/lock.h>
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
+#import <roothide.h>
+#endif
 
 NSNotificationName const CLPrefsDidChangeNotification = @"CLPrefsDidChangeNotification";
 NSNotificationName const CLPrefsClearCacheNotification = @"CLPrefsClearCacheNotification";
@@ -166,18 +169,21 @@ static void CLPrefsDarwinCallback(CFNotificationCenterRef center, void *observer
 // MARK: - Loading
 
 /// Reads the plist directly for the one case CFPreferences cannot cover: a process that gets no
-/// answer at all out of cfprefsd for this domain. Tries the un-prefixed path first, then the
-/// rootless-jailbreak path, and returns the first that actually contains something.
+/// answer at all out of cfprefsd for this domain. Tries iOS's real mobile
+/// preference path first, then the RootHide-specific jbroot path when available.
 /// Never mix this with cfprefsd's answers per key — see -reloadNow for why.
 - (NSDictionary<NSString *, id> *)loadPlistFallback {
     static NSArray<NSString *> *candidatePaths;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSString *file = [CLPrefsActiveDomain() stringByAppendingPathExtension:@"plist"];
-        candidatePaths = @[
-            [@"/var/mobile/Library/Preferences" stringByAppendingPathComponent:file],
-            [@"/var/jb/var/mobile/Library/Preferences" stringByAppendingPathComponent:file],
-        ];
+        NSString *native = [@"/var/mobile/Library/Preferences" stringByAppendingPathComponent:file];
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
+        NSString *jailbreak = jbroot(native);
+        candidatePaths = jailbreak.length > 0 ? @[ native, jailbreak ] : @[ native ];
+#else
+        candidatePaths = @[ native ];
+#endif
     });
     for (NSString *path in candidatePaths) {
         NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
