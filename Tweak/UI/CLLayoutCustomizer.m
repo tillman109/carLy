@@ -1245,6 +1245,22 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     [view setPreviousImage:imageOf(previous) playPauseImage:imageOf(playPause) nextImage:imageOf(next)
               buttonHeight:height.doubleValue];
     if (_micImage) [view setMicrophoneImage:_micImage];
+
+    // Mirror the real play-mode buttons that Spotify is currently showing.
+    // The microphone stays in the same last slot but closes the lyric panel.
+    // Forwarding taps to these host buttons preserves add/shuffle/repeat/etc.
+    UIStackView *sourceStack = _micStack;
+    if (!sourceStack) {
+        UIView *mode = CLViewOrNil(CLIvar(_nowPlayingView, @"_playModeControlView"));
+        id candidate = CLIvar(mode, @"_stackView");
+        if ([candidate isKindOfClass:UIStackView.class]) sourceStack = candidate;
+    }
+    NSMutableArray<UIButton *> *sources = [NSMutableArray array];
+    for (UIView *candidate in sourceStack.arrangedSubviews) {
+        if (candidate == _micButton || candidate.isHidden || ![candidate isKindOfClass:UIButton.class]) continue;
+        [sources addObject:(UIButton *)candidate];
+    }
+    [view setHostPlayModeButtons:sources hostWidth:CGRectGetWidth(sourceStack.bounds)];
 }
 
 /// Title, artist, play state and the "why is it empty" line of the full-screen view.
