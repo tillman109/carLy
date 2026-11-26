@@ -2045,6 +2045,33 @@ static void TestMicrophoneAndFullScreen(void) {
     EXPECT(npv.isHidden, "full screen: the host's Now Playing view is hidden under it");
     EXPECT(fullScreen.controlButtons.count == 4 && [fullScreen.controlButtons[1].accessibilityLabel length] > 0,
            "full screen: previous, play/pause, next, close");
+    EXPECT(fullScreen.playModeButtons.count == 5 &&
+           fullScreen.playModeButtons.lastObject == fullScreen.controlButtons.lastObject,
+           "full screen: the five Now Playing play-mode slots end in carLy's microphone");
+    [fullScreen layoutIfNeeded];
+    NSArray<UIButton *> *modeButtons = fullScreen.playModeButtons;
+    if (modeButtons.count == 5) {
+        BOOL sameSize = YES, level = YES;
+        CGFloat y = CGRectGetMidY(RootFrame(modeButtons.firstObject, vc));
+        for (UIButton *button in modeButtons) {
+            CGRect rect = RootFrame(button, vc);
+            sameSize &= fabs(CGRectGetWidth(rect) - CLLayoutHostTransportLarge) < 1.0 &&
+                        fabs(CGRectGetHeight(rect) - CLLayoutHostPlayModeHeight) < 1.0;
+            level &= fabs(CGRectGetMidY(rect) - y) < 1.0;
+        }
+        EXPECT(sameSize && level && modeButtons.lastObject.selected,
+               "full screen: all play modes and selected microphone use stock 44 x 26 sizing");
+    }
+    CGRect prevRect = RootFrame(fullScreen.controlButtons[0], vc);
+    CGRect pauseRect = RootFrame(fullScreen.controlButtons[1], vc);
+    CGRect nextRect = RootFrame(fullScreen.controlButtons[2], vc);
+    CGFloat quarter = CGRectGetMidX(prevRect);
+    CGFloat middle = CGRectGetMidX(pauseRect);
+    CGFloat threeQuarter = CGRectGetMidX(nextRect);
+    EXPECT(quarter < middle && middle < threeQuarter &&
+           fabs((middle - quarter) - (threeQuarter - middle)) < 1.0 &&
+           fabs(middle - CGRectGetMidX(fullScreen.frame)) < 1.0,
+           "full screen: previous, play and next spread evenly with play centred");
     CLLyricsPanelView *sidePanel = nil;
     for (CLLyricsPanelView *candidate in PanelsIn(vc.view)) {
         if (candidate != fullScreen.panelView) sidePanel = candidate;
@@ -2152,8 +2179,8 @@ static void TestMicrophoneAndFullScreen(void) {
                "full screen: %s sits under the lyrics", button.accessibilityLabel.UTF8String);
     }
 
-    // The progress line: hidden while nothing with a length plays; with one, a thin row between the
-    // lyrics and the controls, as wide as the row under it.
+    // The progress line is BELOW transport and ABOVE the five play modes,
+    // just like native Now Playing, not above the transport row.
     EXPECT(fullScreen.progressView.isHidden, "full screen: no progress line without a song length");
     CLPlaybackState *playing = [[CLPlaybackState alloc] initWithTitle:@"Song" artist:@"Artist" album:nil duration:200.0
                                                           elapsedTime:50.0 timestamp:[NSDate date] playbackRate:0.0
@@ -2163,12 +2190,16 @@ static void TestMicrophoneAndFullScreen(void) {
     [fullScreen layoutIfNeeded];
     CGRect progress = RootFrame(fullScreen.progressView, vc);
     CGRect lyricsFrame = RootFrame(fullScreen.panelView, vc);
-    CGFloat rowTop = CGFLOAT_MAX;
-    for (UIButton *button in fullScreen.controlButtons) rowTop = MIN(rowTop, CGRectGetMinY(RootFrame(button, vc)));
-    EXPECT(!fullScreen.progressView.isHidden && CGRectGetHeight(progress) <= 14.5 && CGRectGetWidth(progress) > 700.0 &&
-           CGRectGetMinY(progress) >= CGRectGetMaxY(lyricsFrame) - 0.5 && CGRectGetMaxY(progress) <= rowTop + 0.5,
-           "full screen: a thin progress line between the lyrics and the controls (%s, lyrics %s, row top %.1f)",
-           NSStringFromCGRect(progress).UTF8String, NSStringFromCGRect(lyricsFrame).UTF8String, rowTop);
+    CGRect transport = RootFrame(fullScreen.controlButtons[1], vc);
+    CGRect playModes = RootFrame(fullScreen.playModeButtons.lastObject, vc);
+    EXPECT(!fullScreen.progressView.isHidden && CGRectGetHeight(progress) <= 14.5 &&
+           CGRectGetWidth(progress) > 700.0 &&
+           CGRectGetMaxY(lyricsFrame) < CGRectGetMinY(transport) &&
+           CGRectGetMaxY(transport) < CGRectGetMinY(progress) &&
+           CGRectGetMaxY(progress) < CGRectGetMinY(playModes),
+           "full screen: stock order lyrics, transport, timeline, play modes (%s, transport %s, mode %s)",
+           NSStringFromCGRect(progress).UTF8String, NSStringFromCGRect(transport).UTF8String,
+           NSStringFromCGRect(playModes).UTF8String);
     NSArray<UILabel *> *times = LabelsIn(fullScreen.progressView);
     EXPECT(times.count == 2 && [times.firstObject.text isEqualToString:@"0:50"] && [times.lastObject.text isEqualToString:@"-2:30"],
            "full screen: elapsed and remaining (%s / %s)", times.firstObject.text.UTF8String, times.lastObject.text.UTF8String);
@@ -2177,8 +2208,8 @@ static void TestMicrophoneAndFullScreen(void) {
     [fullScreen setProgressHidden:NO];
     EXPECT(!fullScreen.progressView.isHidden, "full screen: and shows it again");
 
-    // Its own microphone closes it and gives the host its view back.
-    Tap(fullScreen.controlButtons.lastObject);
+    // The microphone is in the final stock play-mode slot, not oversized beside play/pause.
+    Tap(fullScreen.playModeButtons.lastObject);
     Pump(); Layout(vc);
     EXPECT(!customizer.isFullScreen && !npv.isHidden && ForeignViewCount(vc.view) == 0,
            "full screen: closing restores the host (%lu foreign)", (unsigned long)ForeignViewCount(vc.view));
