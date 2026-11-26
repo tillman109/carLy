@@ -29,13 +29,13 @@ jobs:
       - name: Validate settings before compilation
         run: python3 scripts/check-prefs-plists.py
 
-      - name: Install dpkg (for the .deb)
-        run: brew install dpkg
+      - name: Install dpkg and RootHide signing tools
+        run: brew install dpkg ldid-procursus
 
       # build-payload.sh installs pinned Theos once, in .theos-toolchain.
       # Unsetting THEOS here invokes its own CI bootstrap; the shared env
       # remains set for the later test step on this SAME runner.
-      - name: Build the tweak (Xcode clang, arm64 + arm64e)
+      - name: Build RootHide-native tweak (Xcode clang, arm64 + arm64e)
         run: |
           VERSION="$(awk '/^Version:/ { print $2; exit }' control)"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -48,11 +48,23 @@ jobs:
           GH_PAGES: ${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         run: tools/build-deb.sh "dev${{ github.run_number }}"
 
-      - name: Show what was built
+      - name: Verify RootHide package metadata and payload
         run: |
-          for deb in repo/debs/*.deb; do
-            dpkg-deb -I "$deb" | sed -n '1,14p'
-            dpkg-deb -c "$deb" | grep -E 'carLy\.dylib|carLy\.plist|carLyPrefs'
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(repo/debs/*.deb)
+          test "${#packages[@]}" -eq 1
+          for deb in "${packages[@]}"; do
+            [[ "$deb" == *_iphoneos-arm64e.deb ]]
+            test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64e"
+            test "$(dpkg-deb -f "$deb" Package)" = "com.andi.carly"
+            dpkg-deb -c "$deb" | grep -F './Library/MobileSubstrate/DynamicLibraries/carLy.dylib'
+            dpkg-deb -c "$deb" | grep -F './Library/PreferenceBundles/carLyPrefs.bundle/carLyPrefs'
+            if dpkg-deb -c "$deb" | grep -F '/var/jb/'; then
+              echo "::error::Standard rootless /var/jb path detected in RootHide DEB"
+              exit 1
+            fi
+            echo "RootHide package verified: $deb"
           done
 
       # Upload FIRST, so even if a simulator test fails we keep the .deb.
