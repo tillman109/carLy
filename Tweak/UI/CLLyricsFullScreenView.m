@@ -490,7 +490,10 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
         }
         if (mirror.isEnabled != source.isEnabled) mirror.enabled = source.isEnabled;
         if (mirror.isSelected != source.isSelected) mirror.selected = source.isSelected;
-        UIColor *tint = source.tintColor ?: UIColor.labelColor;
+        // The native Now Playing view can be dark even when the full-screen
+        // lyrics background is LIGHT (the user's light-mode screenshots).
+        // Copy its SYMBOL, not its white-on-artwork foreground colour.
+        UIColor *tint = UIColor.labelColor;
         if (![mirror.tintColor isEqual:tint]) mirror.tintColor = tint;
         NSString *label = source.accessibilityLabel ?: source.titleLabel.text;
         if (![mirror.accessibilityLabel isEqualToString:label]) mirror.accessibilityLabel = label;
