@@ -5,7 +5,7 @@
 # Conflicts with and Replaces, so the package manager removes it). Its settings live in its own
 # preference domain; copy them once into carLy's, so offsets, switches and the app list survive
 # the rename. A fresh install, or a second run, finds nothing to do.
-PREFS=/var/jb/var/mobile/Library/Preferences
+PREFS=/var/mobile/Library/Preferences
 OLD="$PREFS/com.diffmusicplayer.carlyrics.plist"
 NEW="$PREFS/com.andi.carly.plist"
 
