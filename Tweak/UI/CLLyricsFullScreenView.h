@@ -1,10 +1,12 @@
 // Owned by the UI slice. The full-screen lyrics view opened from the native microphone
 // uses a compact two-row footer: title/artist beside previous/play/next, with
-// elapsed/progress/remaining below. The top-left back button reveals native Now Playing.
+// elapsed/progress/remaining below. The host's original top-left back button
+// returns to native Now Playing while lyrics are open.
 // The host's player stays underneath and resumes without a navigation transition.
 //
 // UIKit/QuartzCore. Main thread only. Lyrics touch controls are opt-in; the inner table stays
-// non-focusable to preserve CarPlay rotary controls. The four buttons remain ordinary UIButtons.
+// non-focusable to preserve CarPlay rotary controls. Only three transport buttons
+// belong to this overlay; no duplicate back control is drawn.
 #import <UIKit/UIKit.h>
 #import "Core/CLNowPlayingSource.h"
 #import "UI/CLLyricsPanelView.h"
@@ -20,8 +22,6 @@ NS_ASSUME_NONNULL_BEGIN
 /// a held skip (seek).
 - (void)lyricsFullScreenView:(CLLyricsFullScreenView *)view didSendEvents:(UIControlEvents)events
                   forCommand:(CLPlaybackCommand)command;
-/// Top-left back was tapped: reveal the native Now Playing screen.
-- (void)lyricsFullScreenViewDidRequestClose:(CLLyricsFullScreenView *)view;
 @end
 
 /// The host's CPUIModernButton (the class CarPlay's own transport and play-mode buttons are) when
@@ -34,7 +34,7 @@ FOUNDATION_EXPORT UIButton *CLMakeHostStyleButton(BOOL prefersWhite);
 @property (nonatomic, weak, nullable) id<CLLyricsFullScreenViewDelegate> delegate;
 /// The lyrics occupy the viewport above the compact two-row footer.
 @property (nonatomic, readonly) CLLyricsPanelView *panelView;
-/// Previous, play/pause, next, top-left back — in that order.
+/// Previous, play/pause, next — in that order (native Back is outside this view).
 @property (nonatomic, readonly) NSArray<UIButton *> *controlButtons;
 /// Empty for the compact footer; no shuffle/repeat/play-mode row.
 @property (nonatomic, readonly) NSArray<UIButton *> *playModeButtons;
@@ -47,7 +47,7 @@ FOUNDATION_EXPORT UIButton *CLMakeHostStyleButton(BOOL prefersWhite);
 /// nil images keep the SF Symbol fallbacks.
 - (void)setPreviousImage:(nullable UIImage *)previous playPauseImage:(nullable UIImage *)playPause
                nextImage:(nullable UIImage *)next buttonHeight:(CGFloat)buttonHeight;
-/// Kept for host compatibility; the compact view always shows a back chevron.
+/// Compatibility no-op; the native CarPlay navigation bar owns Back.
 - (void)setMicrophoneImage:(nullable UIImage *)image;
 /// Compatibility no-op; the compact footer deliberately omits the host's play-mode row.
 - (void)setHostPlayModeButtons:(NSArray<UIButton *> *)buttons hostWidth:(CGFloat)hostWidth;
