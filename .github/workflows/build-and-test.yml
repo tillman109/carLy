@@ -2,10 +2,17 @@ name: build and test
 
 # One standard Intel macOS runner instead of two Apple Silicon runners.
 # Manually trigger from Actions > build and test > Run workflow, choosing the
-# feature branch. The DEB is uploaded before simulator tests, so failures
-# never prevent downloading an experimental build.
+# feature branch. Default mode builds, verifies and uploads the DEB, then exits
+# successfully without running simulator tests or publishing to Sileo.
+# Opt in to the full test/publish path when validating a release.
 on:
   workflow_dispatch:
+    inputs:
+      run_tests:
+        description: 'Run simulator tests (and publish to Sileo if configured)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -74,10 +81,19 @@ jobs:
           path: repo/debs/*.deb
           if-no-files-found: error
 
+      - name: Summarize build-only package
+        if: ${{ !inputs.run_tests }}
+        shell: bash
+        run: |
+          echo "## RootHide-native carLy DEB ready" >> "$GITHUB_STEP_SUMMARY"
+          echo "The verified DEB is available in the **carLy-deb** artifact above" >> "$GITHUB_STEP_SUMMARY"
+          echo "Simulator tests and Sileo publishing were skipped as requested" >> "$GITHUB_STEP_SUMMARY"
+
       # Use an iOS 17 simulator if available; otherwise the latest iPhone.
       # The Intel test script compiles x86_64 simulator binaries, while the
       # production DEB remains arm64 + arm64e for iPhone.
       - name: Choose a simulator
+        if: ${{ inputs.run_tests }}
         run: |
           python3 - <<'PY' >> "$GITHUB_ENV"
           import json, re, subprocess, sys
@@ -102,11 +118,13 @@ jobs:
           PY
 
       - name: Run both test suites
+        if: ${{ inputs.run_tests }}
         run: scripts/test-mac.sh
 
       # Publish only after BOTH test suites pass, on the existing macOS runner.
       # CARLY_REPO_TOKEN must have Contents read/write access to tillman109/repo.
       - name: Check optional Sileo publishing credentials
+        if: ${{ inputs.run_tests }}
         id: repo_auth
         env:
           REPO_TOKEN: ${{ secrets.CARLY_REPO_TOKEN }}
@@ -119,7 +137,7 @@ jobs:
           fi
 
       - name: Checkout personal Sileo repository
-        if: steps.repo_auth.outputs.enabled == 'true'
+        if: ${{ inputs.run_tests && steps.repo_auth.outputs.enabled == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: tillman109/repo
@@ -128,7 +146,7 @@ jobs:
           path: personal-repo
 
       - name: Publish carLy DEB and retain last 3 versions
-        if: steps.repo_auth.outputs.enabled == 'true'
+        if: ${{ inputs.run_tests && steps.repo_auth.outputs.enabled == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
