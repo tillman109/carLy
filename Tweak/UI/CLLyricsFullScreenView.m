@@ -10,18 +10,12 @@
 static const CGFloat kCLFullScreenRowHeight = CLLayoutFullScreenRowHeight;
 static const CGFloat kCLFullScreenRowLeading = CLLayoutFullScreenRowLeading;
 static const CGFloat kCLFullScreenRowTrailing = CLLayoutFullScreenRowTrailing;
-static const CGFloat kCLFullScreenRowBottom = CLLayoutFullScreenRowBottom;
-static const CGFloat kCLFullScreenLyricsTop = CLLayoutFullScreenLyricsTop;
-static const CGFloat kCLFullScreenLyricsBottomGap = CLLayoutFullScreenLyricsGap;
-static const CGFloat kCLFullScreenMinimumWidthForText = CLLayoutFullScreenMinimumWidthForText;
 static const CGFloat kCLFullScreenProgressHeight = CLLayoutFullScreenProgressHeight;
 static const CGFloat kCLFullScreenProgressBarThickness = CLLayoutFullScreenProgressThickness;
-static const CGFloat kCLFullScreenProgressGap = CLLayoutFullScreenProgressGap;
-static const CGFloat kCLFullScreenButtonSpacing = 8.0;
-/// The transport buttons are the host's height (36 or 44) and this much wider, like its own row.
+/// Keep the same touch-target width as the host while centring all three controls.
 static const CGFloat kCLFullScreenTransportExtraWidth = 20.0;
-/// Between the transport buttons and the microphone.
-static const CGFloat kCLFullScreenMicrophoneGap = 12.0;
+static const CGFloat kCLFullScreenPlayModeButtonWidth = 44.0;
+static const CGFloat kCLFullScreenPlayModeButtonHeight = CLLayoutFullScreenPlayModeHeight;
 /// The progress line's time labels and their gap to the bar.
 static const CGFloat kCLFullScreenTimeWidth = 40.0;
 static const CGFloat kCLFullScreenTimeGap = 8.0;
@@ -44,6 +38,16 @@ static const NSTimeInterval kCLFullScreenProgressTick = 0.5;
     CGFloat _buttonHeight;
     NSArray<NSLayoutConstraint *> *_transportSizeConstraints;
     UIStackView *_textStack;
+    UIStackView *_playModeStack;
+    NSArray<UIButton *> *_sourcePlayModeButtons;  // host owns its real controls
+    NSMutableArray<UIButton *> *_mirrorPlayModeButtons;
+    CGFloat _hostPlayModeWidth;
+    NSLayoutConstraint *_playModeWidthConstraint;
+    NSLayoutConstraint *_playModeBottomConstraint;
+    NSLayoutConstraint *_progressBelowTransportConstraint;
+    NSLayoutConstraint *_progressAbovePlayModeConstraint;
+    NSLayoutConstraint *_songBelowTransportConstraint;
+    NSLayoutConstraint *_lyricsBelowSongConstraint;
     // Progress (display only).
     UIView *_progressRow;
     UIView *_progressTrack;
@@ -74,6 +78,10 @@ static const NSTimeInterval kCLFullScreenProgressTick = 0.5;
 
 - (NSArray<UIButton *> *)controlButtons {
     return @[ _previousButton, _playButton, _nextButton, _closeButton ];
+}
+
+- (NSArray<UIButton *> *)playModeButtons {
+    return [(_mirrorPlayModeButtons ?: @[]) arrayByAddingObject:_closeButton];
 }
 
 #pragma mark - Building
@@ -146,15 +154,17 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
     _titleLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
     _titleLabel.textColor = UIColor.labelColor;
     _titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    _titleLabel.textAlignment = NSTextAlignmentCenter;
     _artistLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     _artistLabel.translatesAutoresizingMaskIntoConstraints = NO;
     _artistLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
     _artistLabel.textColor = UIColor.secondaryLabelColor;
     _artistLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    _artistLabel.textAlignment = NSTextAlignmentCenter;
     UIStackView *text = [[UIStackView alloc] initWithArrangedSubviews:@[ _titleLabel, _artistLabel ]];
     text.translatesAutoresizingMaskIntoConstraints = NO;
     text.axis = UILayoutConstraintAxisVertical;
-    text.alignment = UIStackViewAlignmentLeading;
+    text.alignment = UIStackViewAlignmentCenter;
     text.spacing = 1.0;
     text.userInteractionEnabled = NO;
     [text setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
@@ -180,7 +190,8 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
     }
     _transportSizeConstraints = sizes;
 
-    // The microphone is "on" here, drawn like the host's selected play-mode buttons (repeat on).
+    // On Now Playing the microphone is the fifth PLAY-MODE control, not an
+    // oversized transport button. Keep that same size/row in the lyrics view.
     _closeButton = CLMakeHostStyleButton(NO);
     [_closeButton setImage:CLSymbol(@"mic", 15.0, UIImageSymbolWeightRegular) forState:UIControlStateNormal];
     _closeButton.accessibilityLabel = @"Hide Lyrics";
@@ -195,22 +206,41 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
     }
     [_closeButton addTarget:self action:@selector(cl_closeTapped:) forControlEvents:UIControlEventTouchUpInside];
     [sizes addObjectsFromArray:@[
-        [_closeButton.widthAnchor constraintEqualToConstant:CLLayoutHostTransportLarge],
-        [_closeButton.heightAnchor constraintEqualToConstant:CLLayoutHostPlayModeHeight],
+        [_closeButton.widthAnchor constraintEqualToConstant:kCLFullScreenPlayModeButtonWidth],
+        [_closeButton.heightAnchor constraintEqualToConstant:kCLFullScreenPlayModeButtonHeight],
     ]];
     [NSLayoutConstraint activateConstraints:sizes];
 
+    // Three equally-spaced host-sized transport buttons across 70% of the
+    // screen, matching their Now Playing x positions (left / centre / right).
     UIStackView *buttons = [[UIStackView alloc] initWithArrangedSubviews:@[ _previousButton, _playButton, _nextButton ]];
     buttons.translatesAutoresizingMaskIntoConstraints = NO;
     buttons.axis = UILayoutConstraintAxisHorizontal;
     buttons.alignment = UIStackViewAlignmentCenter;
-    buttons.spacing = kCLFullScreenButtonSpacing;
-    [buttons setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    buttons.distribution = UIStackViewDistributionEqualSpacing;
     [self addSubview:buttons];
-    [self addSubview:_closeButton];
+
+    // The native host owns shuffle / repeat / queue / extra controls. Mirrors
+    // below show its real icons and forward taps to the hidden host controls.
+    // The microphone closes full-screen, just as it did in the previous build.
+    _mirrorPlayModeButtons = [NSMutableArray array];
+    _sourcePlayModeButtons = @[];
+    _playModeStack = [[UIStackView alloc] initWithArrangedSubviews:@[ _closeButton ]];
+    _playModeStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _playModeStack.axis = UILayoutConstraintAxisHorizontal;
+    _playModeStack.alignment = UIStackViewAlignmentCenter;
+    _playModeStack.distribution = UIStackViewDistributionEqualSpacing;
+    [self addSubview:_playModeStack];
+
+    _playModeWidthConstraint = [_playModeStack.widthAnchor constraintEqualToConstant:kCLFullScreenPlayModeButtonWidth];
+    _playModeBottomConstraint = [_playModeStack.bottomAnchor constraintEqualToAnchor:self.bottomAnchor];
+    _progressAbovePlayModeConstraint = [_progressRow.bottomAnchor constraintEqualToAnchor:_playModeStack.topAnchor];
+    _progressBelowTransportConstraint = [buttons.bottomAnchor constraintEqualToAnchor:_progressRow.topAnchor];
+    _songBelowTransportConstraint = [text.bottomAnchor constraintEqualToAnchor:buttons.topAnchor];
+    _lyricsBelowSongConstraint = [_panelView.bottomAnchor constraintEqualToAnchor:text.topAnchor];
 
     [NSLayoutConstraint activateConstraints:@[
-        [_panelView.topAnchor constraintEqualToAnchor:self.topAnchor constant:kCLFullScreenLyricsTop],
+        [_panelView.topAnchor constraintEqualToAnchor:self.topAnchor constant:CLLayoutFullScreenLyricsTop],
         [_panelView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:CLLayoutFullPanelLyricsInset],
         [self.trailingAnchor constraintEqualToAnchor:_panelView.trailingAnchor constant:CLLayoutFullPanelLyricsInset],
 
@@ -218,23 +248,30 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
         [_statusLabel.leadingAnchor constraintEqualToAnchor:_panelView.leadingAnchor constant:CLLayoutPanelTextInset],
         [_panelView.trailingAnchor constraintEqualToAnchor:_statusLabel.trailingAnchor constant:CLLayoutPanelTextInset],
 
-        // One row, kCLFullScreenRowHeight tall, at the bottom: text, transport, microphone; the
-        // progress line right above it; the lyrics above that.
-        [self.bottomAnchor constraintEqualToAnchor:buttons.centerYAnchor constant:kCLFullScreenRowBottom + kCLFullScreenRowHeight / 2.0],
+        [_playModeStack.heightAnchor constraintEqualToConstant:kCLFullScreenPlayModeButtonHeight],
+        [_playModeStack.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+        _playModeWidthConstraint,
+        _playModeBottomConstraint,
+
         [_progressRow.heightAnchor constraintEqualToConstant:kCLFullScreenProgressHeight],
-        [_progressRow.bottomAnchor constraintEqualToAnchor:self.bottomAnchor
-                                                  constant:-(kCLFullScreenRowBottom + kCLFullScreenRowHeight + kCLFullScreenProgressGap)],
+        _progressAbovePlayModeConstraint,
         [_progressRow.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:kCLFullScreenRowLeading],
         [self.trailingAnchor constraintEqualToAnchor:_progressRow.trailingAnchor constant:kCLFullScreenRowTrailing],
-        [_panelView.bottomAnchor constraintEqualToAnchor:_progressRow.topAnchor constant:-kCLFullScreenLyricsBottomGap],
-        [_closeButton.centerYAnchor constraintEqualToAnchor:buttons.centerYAnchor],
-        [self.trailingAnchor constraintEqualToAnchor:_closeButton.trailingAnchor constant:kCLFullScreenRowTrailing],
-        [_closeButton.leadingAnchor constraintEqualToAnchor:buttons.trailingAnchor constant:kCLFullScreenMicrophoneGap],
 
-        [text.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:kCLFullScreenRowLeading],
-        [text.centerYAnchor constraintEqualToAnchor:buttons.centerYAnchor],
-        [buttons.leadingAnchor constraintGreaterThanOrEqualToAnchor:text.trailingAnchor constant:12.0],
+        [buttons.heightAnchor constraintEqualToConstant:kCLFullScreenRowHeight],
+        [buttons.widthAnchor constraintEqualToAnchor:self.widthAnchor multiplier:0.70],
+        [buttons.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+        _progressBelowTransportConstraint,
+
+        // Song metadata sits between the lyrics and transport controls, never
+        // beside/under a transport button. Its marquees continue working.
+        [text.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+        [text.widthAnchor constraintLessThanOrEqualToAnchor:self.widthAnchor multiplier:0.62],
+        [text.heightAnchor constraintLessThanOrEqualToConstant:CLLayoutFullScreenSongInfoHeight],
+        _songBelowTransportConstraint,
+        _lyricsBelowSongConstraint,
     ]];
+    [self cl_updateFooterMetrics];
     [self setPlaying:NO];
 }
 
@@ -281,10 +318,27 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
     ]];
 }
 
+- (void)cl_updateFooterMetrics {
+    // Readable on short displays, exact stock Now Playing row spacing at >=700pt.
+    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(self.bounds));
+    _playModeBottomConstraint.constant = -CLLayoutFullScreenPlayModeBottom * scale;
+    _progressAbovePlayModeConstraint.constant = -CLLayoutFullScreenProgressAbovePlayMode * scale;
+    _progressBelowTransportConstraint.constant = -CLLayoutFullScreenProgressBelowTransport * scale;
+    _songBelowTransportConstraint.constant = -CLLayoutFullScreenSongInfoGap * scale;
+    _lyricsBelowSongConstraint.constant = -CLLayoutFullScreenLyricsGap * scale;
+
+    NSUInteger count = _mirrorPlayModeButtons.count + 1;
+    CGFloat minimum = kCLFullScreenPlayModeButtonWidth * count;
+    CGFloat natural = minimum + 16.0 * (count ? count - 1 : 0);
+    CGFloat requested = _hostPlayModeWidth >= minimum ? _hostPlayModeWidth : natural;
+    CGFloat limit = MAX(minimum, CGRectGetWidth(self.bounds) - 24.0);
+    CGFloat width = MIN(requested, limit);
+    if (fabs(_playModeWidthConstraint.constant - width) > 0.5) _playModeWidthConstraint.constant = width;
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
-    BOOL narrow = CGRectGetWidth(self.bounds) < kCLFullScreenMinimumWidthForText;
-    if (_textStack.isHidden != narrow) _textStack.hidden = narrow;
+    [self cl_updateFooterMetrics];
     [self cl_layoutProgressFill];
     [self cl_updateSongMarquees];
 }
@@ -408,6 +462,53 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
     }
 }
 
+- (void)cl_syncHostPlayModeImages {
+    NSUInteger count = MIN(_mirrorPlayModeButtons.count, _sourcePlayModeButtons.count);
+    for (NSUInteger i = 0; i < count; i++) {
+        UIButton *source = _sourcePlayModeButtons[i];
+        UIButton *mirror = _mirrorPlayModeButtons[i];
+        for (NSNumber *stateNumber in @[ @(UIControlStateNormal), @(UIControlStateSelected), @(UIControlStateDisabled) ]) {
+            UIControlState state = (UIControlState)stateNumber.unsignedIntegerValue;
+            UIImage *image = [source imageForState:state];
+            if (state == UIControlStateNormal && !image) image = source.currentImage;
+            if (image && [mirror imageForState:state] != image) [mirror setImage:image forState:state];
+        }
+        mirror.enabled = source.isEnabled;
+        mirror.selected = source.isSelected;
+        mirror.tintColor = source.tintColor ?: UIColor.labelColor;
+        mirror.accessibilityLabel = source.accessibilityLabel ?: source.titleLabel.text;
+    }
+}
+
+/// The four normal play-mode actions stay Spotify's controls, mirrored on top
+/// of the hidden Now Playing view. The last action is carLy's microphone.
+- (void)setHostPlayModeButtons:(NSArray<UIButton *> *)sources hostWidth:(CGFloat)hostWidth {
+    NSArray<UIButton *> *valid = sources ?: @[];
+    if (![_sourcePlayModeButtons isEqualToArray:valid]) {
+        for (UIButton *mirror in _mirrorPlayModeButtons) {
+            [_playModeStack removeArrangedSubview:mirror];
+            [mirror removeFromSuperview];
+        }
+        [_mirrorPlayModeButtons removeAllObjects];
+        _sourcePlayModeButtons = [valid copy];
+        NSUInteger index = 0;
+        for (UIButton *source in valid) {
+            UIButton *mirror = CLMakeHostStyleButton(NO);
+            mirror.accessibilityLabel = source.accessibilityLabel;
+            [mirror addTarget:self action:@selector(cl_hostPlayModeTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [NSLayoutConstraint activateConstraints:@[
+                [mirror.widthAnchor constraintEqualToConstant:kCLFullScreenPlayModeButtonWidth],
+                [mirror.heightAnchor constraintEqualToConstant:kCLFullScreenPlayModeButtonHeight]
+            ]];
+            [_playModeStack insertArrangedSubview:mirror atIndex:index++];
+            [_mirrorPlayModeButtons addObject:mirror];
+        }
+    }
+    _hostPlayModeWidth = hostWidth;
+    [self cl_syncHostPlayModeImages];
+    [self cl_updateFooterMetrics];
+}
+
 - (void)setMicrophoneImage:(UIImage *)image {
     if (image && [_closeButton imageForState:UIControlStateNormal] != image) {
         [_closeButton setImage:image forState:UIControlStateNormal];
@@ -477,6 +578,18 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
     CLUISafePerform(@"full screen transport up", ^{
         [self.delegate lyricsFullScreenView:self didSendEvents:UIControlEventTouchUpInside
                                  forCommand:[self cl_commandForButton:sender]];
+    });
+}
+
+- (void)cl_hostPlayModeTapped:(UIButton *)sender {
+    CLUISafePerform(@"full screen host play-mode tap", ^{
+        NSUInteger index = [_mirrorPlayModeButtons indexOfObjectIdenticalTo:sender];
+        if (index == NSNotFound || index >= _sourcePlayModeButtons.count) return;
+        UIButton *source = _sourcePlayModeButtons[index];
+        // Forward to the host's actual toggle/action. This preserves Spotify's
+        // add-to-library, shuffle, repeat and radio behaviour and source state.
+        [source sendActionsForControlEvents:UIControlEventTouchUpInside];
+        [self cl_syncHostPlayModeImages];
     });
 }
 
