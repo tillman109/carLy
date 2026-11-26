@@ -210,69 +210,46 @@ static const CGFloat CLLayoutPanelSideInset = 16.0;
 /// Side by Side: the panel's top/bottom gap.
 static const CGFloat CLLayoutPanelTopGap = 8.0;
 
-#pragma mark - Full-screen lyrics (CLLyricsFullScreenView in the car, CLLayoutPreviewView in Settings)
+#pragma mark - Full-screen lyrics (compact two-row footer)
 
-// Match stock Now Playing's THREE independent footer rows:
-// 1) transport controls, 2) timeline, 3) five play-mode buttons.
-// The gaps scale down on short CarPlay screens; the icon sizes do not shrink.
+// Song/artist and transport share the first row; timeline and times sit below.
+// Leave as much height as possible for karaoke lyrics.
 static const CGFloat CLLayoutFullScreenRowHeight = 44.0;
 static const CGFloat CLLayoutFullScreenRowLeading = 27.0, CLLayoutFullScreenRowTrailing = 27.0;
-static const CGFloat CLLayoutFullScreenPlayModeHeight = 26.0;
-static const CGFloat CLLayoutFullScreenPlayModeBottom = 46.0;
-static const CGFloat CLLayoutFullScreenProgressBelowTransport = 28.0;
-static const CGFloat CLLayoutFullScreenProgressAbovePlayMode = 30.0;
 static const CGFloat CLLayoutFullScreenProgressHeight = 14.0;
 static const CGFloat CLLayoutFullScreenProgressThickness = 3.0;
-static const CGFloat CLLayoutFullScreenSongInfoGap = 8.0;
+static const CGFloat CLLayoutFullScreenFooterBottom = 14.0;
+static const CGFloat CLLayoutFullScreenFooterSideInset = 27.0;
+static const CGFloat CLLayoutFullScreenCompactGap = 10.0;
 static const CGFloat CLLayoutFullScreenSongInfoHeight = 36.0;
-static const CGFloat CLLayoutFullScreenLyricsTop = 8.0, CLLayoutFullScreenLyricsGap = 8.0;
+static const CGFloat CLLayoutFullScreenLyricsTop = 8.0, CLLayoutFullScreenLyricsGap = 12.0;
 
-// Preserve a usable lyric viewport on short / unusual CarPlay display shapes.
-// The normal 700+ point screens use exactly the screenshot's stock-row spacing.
 static inline CGFloat CLLayoutFullScreenSpacingScale(CGFloat height) {
     return MAX(0.45, MIN(1.0, height / 700.0));
 }
-
-static inline CGRect CLLayoutFullScreenPlayModeRect(CGRect safe) {
-    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
-    return CGRectMake(CGRectGetMinX(safe) + CLLayoutFullScreenRowLeading,
-                      CGRectGetMaxY(safe) - CLLayoutFullScreenPlayModeBottom * scale -
-                          CLLayoutFullScreenPlayModeHeight,
-                      MAX(0.0, CGRectGetWidth(safe) - CLLayoutFullScreenRowLeading -
-                          CLLayoutFullScreenRowTrailing),
-                      CLLayoutFullScreenPlayModeHeight);
-}
 static inline CGRect CLLayoutFullScreenProgressRect(CGRect safe) {
-    CGRect mode = CLLayoutFullScreenPlayModeRect(safe);
-    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
-    return CGRectMake(CGRectGetMinX(mode),
-                      CGRectGetMinY(mode) - CLLayoutFullScreenProgressAbovePlayMode * scale -
-                          CLLayoutFullScreenProgressHeight,
-                      CGRectGetWidth(mode), CLLayoutFullScreenProgressHeight);
+    return CGRectMake(CGRectGetMinX(safe) + CLLayoutFullScreenRowLeading,
+                      CGRectGetMaxY(safe) - CLLayoutFullScreenFooterBottom - CLLayoutFullScreenProgressHeight,
+                      MAX(0.0, CGRectGetWidth(safe) - CLLayoutFullScreenRowLeading - CLLayoutFullScreenRowTrailing),
+                      CLLayoutFullScreenProgressHeight);
 }
 static inline CGRect CLLayoutFullScreenRowRect(CGRect safe) {
     CGRect progress = CLLayoutFullScreenProgressRect(safe);
-    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
     return CGRectMake(CGRectGetMinX(progress),
-                      CGRectGetMinY(progress) - CLLayoutFullScreenProgressBelowTransport * scale -
-                          CLLayoutFullScreenRowHeight,
+                      CGRectGetMinY(progress) - CLLayoutFullScreenCompactGap - CLLayoutFullScreenRowHeight,
                       CGRectGetWidth(progress), CLLayoutFullScreenRowHeight);
 }
 static inline CGRect CLLayoutFullScreenSongInfoRect(CGRect safe) {
-    CGRect transport = CLLayoutFullScreenRowRect(safe);
-    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
-    return CGRectMake(CGRectGetMinX(transport),
-                      CGRectGetMinY(transport) - CLLayoutFullScreenSongInfoGap * scale -
-                          CLLayoutFullScreenSongInfoHeight,
-                      CGRectGetWidth(transport), CLLayoutFullScreenSongInfoHeight);
+    CGRect row = CLLayoutFullScreenRowRect(safe);
+    return CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) - CLLayoutFullScreenSongInfoHeight / 2.0,
+                      CGRectGetWidth(row) * 0.55, CLLayoutFullScreenSongInfoHeight);
 }
 static inline CGRect CLLayoutFullScreenLyricsRect(CGRect safe) {
-    CGRect info = CLLayoutFullScreenSongInfoRect(safe);
+    CGRect row = CLLayoutFullScreenRowRect(safe);
     CGFloat top = CGRectGetMinY(safe) + CLLayoutFullScreenLyricsTop;
-    CGFloat scale = CLLayoutFullScreenSpacingScale(CGRectGetHeight(safe));
     return CGRectMake(CGRectGetMinX(safe) + CLLayoutFullPanelLyricsInset, top,
                       MAX(0.0, CGRectGetWidth(safe) - 2.0 * CLLayoutFullPanelLyricsInset),
-                      MAX(0.0, CGRectGetMinY(info) - CLLayoutFullScreenLyricsGap * scale - top));
+                      MAX(0.0, CGRectGetMinY(row) - CLLayoutFullScreenLyricsGap - top));
 }
 
 #pragma mark - Panel font fit (CLLyricsPanelView in the car, CLLayoutPreviewView in Settings)
