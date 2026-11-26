@@ -1,7 +1,7 @@
 Package: com.andi.carly
 Name: carLy
 Version: @VERSION@
-Architecture: iphoneos-arm64
+Architecture: iphoneos-arm64e
 Maintainer: andi <tafilajandi@gmail.com>
 Author: andi
 Section: Tweaks
