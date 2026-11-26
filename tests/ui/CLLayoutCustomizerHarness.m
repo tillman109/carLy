@@ -1966,8 +1966,8 @@ static void TestPlaybackSpeedButton(void) {
 /// The microphone (0.7.0): our button joins the host's play-mode row (last, laid out by the host's
 /// own -_updateButtonLayouts), survives host passes and new template buttons, leaves with lyrics
 /// off; tapping it opens full-screen lyrics over the safe area with the host's view hidden, on any
-/// screen — including one no split fits — and the view's own microphone, a detach or turning
-/// lyrics off give the host everything back.
+/// screen — including one no split fits — and the native CarPlay Back action,
+/// detach or turning lyrics off give the host everything back.
 static void TestMicrophoneAndFullScreen(void) {
     ResetPrefs();
     CLLayoutCustomizer.hostColumnHooksInstalled = YES;
@@ -2043,12 +2043,12 @@ static void TestMicrophoneAndFullScreen(void) {
            "full screen: one view over the safe area (%lu, %s)", (unsigned long)fullScreens.count,
            NSStringFromCGRect(fullScreen.frame).UTF8String);
     EXPECT(npv.isHidden, "full screen: the host's Now Playing view is hidden under it");
-    EXPECT(fullScreen.controlButtons.count == 4 && [fullScreen.controlButtons[1].accessibilityLabel length] > 0,
-           "full screen: previous, play/pause, next, close");
+    EXPECT(fullScreen.controlButtons.count == 3 && [fullScreen.controlButtons[1].accessibilityLabel length] > 0,
+           "full screen: previous, play/pause, next only (no duplicate Back button)");
     EXPECT(fullScreen.playModeButtons.count == 0,
            "full screen: compact footer removes all five playback-mode controls");
-    EXPECT([fullScreen.controlButtons.lastObject.accessibilityLabel isEqualToString:@"Back to Now Playing"],
-           "full screen: top-left chevron returns to native Now Playing");
+    EXPECT([CLLayoutCustomizer consumeNativeBackForViewController:nil] == NO,
+           "full screen: native Back never intercepts an unrelated controller");
     [fullScreen layoutIfNeeded];
     CGRect prevRect = RootFrame(fullScreen.controlButtons[0], vc);
     CGRect pauseRect = RootFrame(fullScreen.controlButtons[1], vc);
@@ -2056,9 +2056,9 @@ static void TestMicrophoneAndFullScreen(void) {
     EXPECT(CGRectGetMidX(prevRect) < CGRectGetMidX(pauseRect) &&
            CGRectGetMidX(pauseRect) < CGRectGetMidX(nextRect),
            "full screen: three transport buttons stay ordered in compact footer");
-    CGRect backRect = RootFrame(fullScreen.controlButtons.lastObject, vc);
-    EXPECT(CGRectGetMinX(backRect) < 60.0 && CGRectGetMinY(backRect) < 60.0,
-           "full screen: back button stays in existing top-left position");
+    EXPECT([fullScreen preferredFocusEnvironments].count == 1 &&
+           [fullScreen preferredFocusEnvironments].firstObject == fullScreen.controlButtons[1],
+           "full screen: only transport is focusable in the overlay; Back stays native");
     CLLyricsPanelView *sidePanel = nil;
     for (CLLyricsPanelView *candidate in PanelsIn(vc.view)) {
         if (candidate != fullScreen.panelView) sidePanel = candidate;
@@ -2190,11 +2190,16 @@ static void TestMicrophoneAndFullScreen(void) {
     [fullScreen setProgressHidden:NO];
     EXPECT(!fullScreen.progressView.isHidden, "full screen: and shows it again");
 
-    // Top-left back dismisses carLy without navigating to the CarPlay home page.
-    Tap(fullScreen.controlButtons.lastObject);
+    // Simulate the host's original navigation-bar Back delegate / pop action.
+    // The hook must consume it without popping Now Playing only while lyrics
+    // are active; subsequent Back presses keep their normal CarPlay behaviour.
+    EXPECT([CLLayoutCustomizer consumeNativeBackForViewController:vc],
+           "full screen: native Back is consumed while lyrics are open");
     Pump(); Layout(vc);
     EXPECT(!customizer.isFullScreen && !npv.isHidden && ForeignViewCount(vc.view) == 0,
-           "full screen: closing restores the host (%lu foreign)", (unsigned long)ForeignViewCount(vc.view));
+           "full screen: native Back restores Now Playing (%lu foreign)", (unsigned long)ForeignViewCount(vc.view));
+    EXPECT(![CLLayoutCustomizer consumeNativeBackForViewController:vc],
+           "full screen: native Back works normally after closing lyrics");
 
     // A screen no split fits (the stock screen, effective 0) still gets the microphone and full screen.
     vc.view.frame = CGRectMake(0, 0, 300, 300);
