@@ -29,7 +29,6 @@ static const NSTimeInterval kCLFullScreenProgressTick = 0.5;
     UIButton *_previousButton;
     UIButton *_playButton;
     UIButton *_nextButton;
-    UIButton *_closeButton;
     BOOL _playing;
     /// YES once the host's own play/pause image was handed over; -setPlaying: then stays out of it.
     BOOL _hasHostPlayImage;
@@ -75,7 +74,7 @@ static const NSTimeInterval kCLFullScreenProgressTick = 0.5;
 }
 
 - (NSArray<UIButton *> *)controlButtons {
-    return @[ _previousButton, _playButton, _nextButton, _closeButton ];
+    return @[ _previousButton, _playButton, _nextButton ];
 }
 
 - (NSArray<UIButton *> *)playModeButtons {
@@ -190,16 +189,9 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
     // buttonHeight refresh must NEVER resize the 44 x 26 play-mode microphone.
     _transportSizeConstraints = [sizes copy];
 
-    // A back chevron in the EXISTING upper-left position. It dismisses only
-    // carLy's overlay, revealing the native Now Playing view underneath.
-    _closeButton = CLMakeHostStyleButton(NO);
-    [_closeButton setImage:CLSymbol(@"chevron.left", 19.0, UIImageSymbolWeightSemibold) forState:UIControlStateNormal];
-    _closeButton.accessibilityLabel = @"Back to Now Playing";
-    _closeButton.tintColor = UIColor.labelColor;
-    _closeButton.backgroundColor = UIColor.tertiarySystemFillColor;
-    _closeButton.layer.cornerRadius = 22.0;
-    [_closeButton addTarget:self action:@selector(cl_closeTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:_closeButton];
+    // Navigation belongs to CarPlay's original top-left back button. The host's
+    // UINavigationController action is intercepted only while full-screen lyrics
+    // are active; never add a second back button to this overlay.
 
     // Compact footer: title/artist and previous/play/next share the first row.
     // The slim progress line with times sits directly below. No play-mode row.
@@ -229,11 +221,6 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
         [_statusLabel.centerYAnchor constraintEqualToAnchor:_panelView.centerYAnchor],
         [_statusLabel.leadingAnchor constraintEqualToAnchor:_panelView.leadingAnchor constant:CLLayoutPanelTextInset],
         [_panelView.trailingAnchor constraintEqualToAnchor:_statusLabel.trailingAnchor constant:CLLayoutPanelTextInset],
-
-        [_closeButton.topAnchor constraintEqualToAnchor:self.topAnchor constant:8.0],
-        [_closeButton.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:8.0],
-        [_closeButton.widthAnchor constraintEqualToConstant:44.0],
-        [_closeButton.heightAnchor constraintEqualToConstant:44.0],
 
         [_progressRow.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-CLLayoutFullScreenFooterBottom],
         [_progressRow.heightAnchor constraintEqualToConstant:kCLFullScreenProgressHeight],
@@ -384,9 +371,9 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
     [_artistMarquee stop];
 }
 
-/// Knob focus lands on play/pause first (like CarPlay's own player), the microphone next.
+/// The native navigation bar owns Back; our overlay offers transport focus only.
 - (NSArray<id<UIFocusEnvironment>> *)preferredFocusEnvironments {
-    return @[ _playButton, _closeButton ];
+    return @[ _playButton ];
 }
 
 #pragma mark - Public API
@@ -509,12 +496,6 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
     CLUISafePerform(@"full screen transport up", ^{
         [self.delegate lyricsFullScreenView:self didSendEvents:UIControlEventTouchUpInside
                                  forCommand:[self cl_commandForButton:sender]];
-    });
-}
-
-- (void)cl_closeTapped:(id)sender {
-    CLUISafePerform(@"full screen close", ^{
-        [self.delegate lyricsFullScreenViewDidRequestClose:self];
     });
 }
 
