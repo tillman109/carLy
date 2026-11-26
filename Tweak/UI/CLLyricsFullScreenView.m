@@ -488,13 +488,15 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
             }
             if (image && [mirror imageForState:state] != image) [mirror setImage:image forState:state];
         }
-        if (mirror.isEnabled != source.isEnabled) mirror.enabled = source.isEnabled;
-        if (mirror.isSelected != source.isSelected) mirror.selected = source.isSelected;
         // The native Now Playing view can be dark even when the full-screen
         // lyrics background is LIGHT (the user's light-mode screenshots).
         // Copy its SYMBOL, not its white-on-artwork foreground colour.
         UIColor *tint = UIColor.labelColor;
         if (![mirror.tintColor isEqual:tint]) mirror.tintColor = tint;
+        if (mirror.isEnabled != source.isEnabled) mirror.enabled = source.isEnabled;
+        // Apply selection last: CPUIModernButton owns selected foreground and
+        // background contrast, which mustn't be overwritten by its base tint.
+        if (mirror.isSelected != source.isSelected) mirror.selected = source.isSelected;
         NSString *label = source.accessibilityLabel ?: source.titleLabel.text;
         if (![mirror.accessibilityLabel isEqualToString:label]) mirror.accessibilityLabel = label;
     }
