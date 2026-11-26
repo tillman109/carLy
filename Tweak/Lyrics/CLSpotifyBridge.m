@@ -5,6 +5,9 @@
 #import <notify.h>
 #import <stdlib.h>
 #import <sys/stat.h>
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
+#import <roothide.h>
+#endif
 
 NSString *const CLSpotifyBridgeRequestNotification = @"com.andi.carly/spotify.request";
 NSString *const CLSpotifyBridgeResponseNotification = @"com.andi.carly/spotify.response";
@@ -24,9 +27,17 @@ NSString *const CLSpotifyBridgeRequestDuration = @"duration";
 NSString *const CLSpotifyBridgeRequestTime = @"at";
 
 static const NSInteger kCLBridgeVersion = 1;
-/// Hard-coded jbroot like CLPrefs' plist fallback: rootless.h on this Theos goes through libroot,
-/// which the phone's libroot-dopamine cannot serve (CLAUDE.md).
-static NSString *const kCLBridgeDefaultDirectory = @"/var/jb/var/mobile/Library/Caches/carLy/SpotifyBridge";
+/// The request/response bridge must be shared between the Spotify and CarPlay
+/// processes. RootHide's jbroot is per-install and cannot be hard-coded as
+/// /var/jb, unlike a standard rootless jailbreak. Resolve it dynamically.
+static NSString *CLBridgeDefaultDirectory(void) {
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
+    return jbroot(@"/var/mobile/Library/Caches/carLy/SpotifyBridge");
+#else
+    // Simulator unit tests override this with CARLY_SPOTIFY_BRIDGE_DIR.
+    return @"/var/mobile/Library/Caches/carLy/SpotifyBridge";
+#endif
+}
 /// Bigger than any lyrics document; anything larger is not ours and is not read.
 static const unsigned long long kCLBridgeMaximumFileSize = 1024 * 1024;
 
@@ -39,7 +50,7 @@ static const unsigned long long kCLBridgeMaximumFileSize = 1024 * 1024;
         const char *override = getenv("CARLY_SPOTIFY_BRIDGE_DIR");
         NSString *candidate = override != NULL ? @(override) : nil;
         candidate = [candidate stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        directory = (candidate.length > 1 && [candidate hasPrefix:@"/"]) ? [candidate copy] : kCLBridgeDefaultDirectory;
+        directory = (candidate.length > 1 && [candidate hasPrefix:@"/"]) ? [candidate copy] : CLBridgeDefaultDirectory();
     });
     return directory;
 }
@@ -88,7 +99,7 @@ static const unsigned long long kCLBridgeMaximumFileSize = 1024 * 1024;
     NSError *error = nil;
     NSDictionary *attributes = @{ NSFilePosixPermissions: @(0755) };
     if (![fileManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:attributes error:&error]) {
-        // The usual cause: this process did not get Dopamine's extension for <jbroot>/var/mobile.
+        // The usual cause: this process lacks RootHide's sandbox extension for jbroot/var/mobile.
         static BOOL reported = NO;
         if (!reported) {
             CLLogInfo(@"[spotify-bridge] cannot create %@: %@", directory, error.localizedDescription ?: @"?");
