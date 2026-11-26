@@ -476,7 +476,7 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
                 image = source.currentImage;
                 // Some private host controls render their image indirectly.
                 // Use the stock symbol as a fallback, never a blank button.
-                if (!image) {
+                if (!image && ![mirror imageForState:UIControlStateNormal]) {
                     NSArray<NSString *> *fallback = @[ @"checkmark.circle", @"shuffle", @"repeat",
                                                        @"dot.radiowaves.left.and.right" ];
                     NSString *name = i < fallback.count ? fallback[i] : @"ellipsis.circle";
@@ -485,10 +485,12 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
             }
             if (image && [mirror imageForState:state] != image) [mirror setImage:image forState:state];
         }
-        mirror.enabled = source.isEnabled;
-        mirror.selected = source.isSelected;
-        mirror.tintColor = source.tintColor ?: UIColor.labelColor;
-        mirror.accessibilityLabel = source.accessibilityLabel ?: source.titleLabel.text;
+        if (mirror.isEnabled != source.isEnabled) mirror.enabled = source.isEnabled;
+        if (mirror.isSelected != source.isSelected) mirror.selected = source.isSelected;
+        UIColor *tint = source.tintColor ?: UIColor.labelColor;
+        if (![mirror.tintColor isEqual:tint]) mirror.tintColor = tint;
+        NSString *label = source.accessibilityLabel ?: source.titleLabel.text;
+        if (![mirror.accessibilityLabel isEqualToString:label]) mirror.accessibilityLabel = label;
     }
 }
 
