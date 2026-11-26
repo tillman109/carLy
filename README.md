@@ -34,10 +34,23 @@ No accounts, keys, analytics or telemetry. carLy only connects to the lyrics sou
 
 ## Building
 
+**RootHide development branch:** Builds on this branch produce native
+`iphoneos-arm64e` RootHide DEBs for Dopamine RootHide, with both arm64 and
+arm64e Mach-O slices. They use the pinned
+[RootHide Theos fork](https://github.com/roothide/theos), ldid and Xcode clang.
+They are **not** standard `iphoneos-arm64` rootless packages and do not need
+RootHide Patcher. The Spotify bridge resolves the randomized jailbreak root
+at runtime with `jbroot()`
+
+The existing GitHub Actions **build and test** workflow can be started manually
+on this feature branch. It validates the package architecture and payload
+before uploading the DEB, then runs the simulator tests. If publishing is
+configured, it only uploads after tests pass
+
 carLy builds on a Mac with Xcode and [Theos](https://theos.dev). The arm64e slice has to come from Xcode's clang: Procursus' on-device clang does not sign Objective-C class metadata the way iOS 17's arm64e runtime expects, and its build crashes `CarPlayTemplateUIHost` at load.
 
 ```sh
-export THEOS=~/theos
+export THEOS=~/theos-roothide
 ./scripts/build-mac.sh     # build the .deb into packages/ (arm64 + arm64e)
 scripts/test-mac.sh        # 1,700+ logic tests and the layout harness, in an iOS 17 simulator
 ```
