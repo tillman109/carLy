@@ -472,7 +472,17 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
         for (NSNumber *stateNumber in @[ @(UIControlStateNormal), @(UIControlStateSelected), @(UIControlStateDisabled) ]) {
             UIControlState state = (UIControlState)stateNumber.unsignedIntegerValue;
             UIImage *image = [source imageForState:state];
-            if (state == UIControlStateNormal && !image) image = source.currentImage;
+            if (state == UIControlStateNormal && !image) {
+                image = source.currentImage;
+                // Some private host controls render their image indirectly.
+                // Use the stock symbol as a fallback, never a blank button.
+                if (!image) {
+                    NSArray<NSString *> *fallback = @[ @"checkmark.circle", @"shuffle", @"repeat",
+                                                       @"dot.radiowaves.left.and.right" ];
+                    NSString *name = i < fallback.count ? fallback[i] : @"ellipsis.circle";
+                    image = CLSymbol(name, 15.0, UIImageSymbolWeightRegular);
+                }
+            }
             if (image && [mirror imageForState:state] != image) [mirror setImage:image forState:state];
         }
         mirror.enabled = source.isEnabled;
@@ -533,7 +543,9 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
 }
 
 - (void)setAccentColor:(UIColor *)color {
-    UIColor *fill = color ?: [UIColor colorWithWhite:1.0 alpha:0.9];
+    // Native progress must remain legible in both light and dark appearances.
+    // The old artwork Accent preference is not a progress-bar theme.
+    UIColor *fill = UIColor.labelColor;
     // The full-screen artist should follow the SONG TITLE in dark appearance,
     // not an artwork accent that may be nearly black against the backdrop.
     UIColor *titleColor = [_titleMarquee visibleColorForLabel:_titleLabel] ?: UIColor.labelColor;
@@ -542,7 +554,7 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
     BOOL lightTitle = [resolved getRed:&r green:&g blue:&b alpha:&a] &&
                       (0.2126*r + 0.7152*g + 0.0722*b) > 0.65 && a > 0.1;
     BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark || lightTitle;
-    UIColor *artist = dark ? titleColor : (color ?: UIColor.secondaryLabelColor);
+    UIColor *artist = dark ? titleColor : UIColor.secondaryLabelColor;
     if (![_progressFill.backgroundColor isEqual:fill]) _progressFill.backgroundColor = fill;
     [_artistMarquee setVisibleTextColor:artist forLabel:_artistLabel];
     [self cl_updateSongMarquees];
