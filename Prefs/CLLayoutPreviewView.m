@@ -466,13 +466,13 @@ static UIFontWeight CLFontWeight(NSInteger numeric) {
     }
 }
 
-/// The full-screen lyrics view over `safe`, from the shared rects in UI/CLLayoutGeometry.h: the
-/// lyrics, the progress line, and the row with title, previous / play-pause / next and the
-/// microphone (selected).
+/// Full-screen lyric preview uses the same three-row native footer metrics as
+/// CLLyricsFullScreenView: transport, timeline, five play modes.
 - (void)cl_drawFullScreenIn:(CGContextRef)context safe:(CGRect)safe model:(CLLayoutPreviewModel *)model {
     [self cl_drawPanelIn:context rect:CLLayoutFullScreenLyricsRect(safe) fit:CLLayoutPanelFitRows model:model];
 
     UIColor *secondary = [UIColor colorWithWhite:1.0 alpha:0.6];
+    UIColor *white = [UIColor colorWithWhite:1.0 alpha:0.95];
     CGRect progress = CLLayoutFullScreenProgressRect(safe);
     if (model.progressBarStyle != 2) {
         CGFloat timeWidth = _card ? 0.0 : 40.0, timeGap = _card ? 0.0 : 8.0;
@@ -493,31 +493,47 @@ static UIFontWeight CLFontWeight(NSInteger numeric) {
     }
 
     CGRect row = CLLayoutFullScreenRowRect(safe);
-    UIColor *white = [UIColor colorWithWhite:1.0 alpha:0.95];
-    // Right to left: the microphone pill, then next, play/pause, previous (the host's 36 pt row).
-    CGFloat x = CGRectGetMaxX(row);
-    CGRect mic = CGRectMake(x - 44.0, CGRectGetMidY(row) - 13.0, 44.0, 26.0);
-    CLFillRoundedRect(context, mic, 8.0, [UIColor colorWithWhite:1.0 alpha:0.8]);
-    if (!_card) CLDrawSymbol(@"mic", mic, 14.0, UIImageSymbolWeightRegular, [UIColor colorWithWhite:0.1 alpha:1.0]);
-    x = CGRectGetMinX(mic) - 12.0;
-    for (NSString *symbol in @[ @"forward.fill", @"pause.fill", @"backward.fill" ]) {
-        CGRect slot = CGRectMake(x - 56.0, CGRectGetMinY(row), 56.0, CGRectGetHeight(row));
-        if (_card) CLFillCircle(context, CGPointMake(CGRectGetMidX(slot), CGRectGetMidY(slot)), 5.0, white);
-        else CLDrawSymbol(symbol, slot, 20.0, UIImageSymbolWeightSemibold, white);
-        x -= 56.0 + 8.0;
+    CGFloat rowWidth = CGRectGetWidth(row) * 0.70;
+    CGFloat first = CGRectGetMidX(row) - rowWidth / 2.0;
+    CGFloat last = CGRectGetMidX(row) + rowWidth / 2.0;
+    NSArray<NSString *> *transport = @[ @"backward.fill", @"pause.fill", @"forward.fill" ];
+    for (NSUInteger i = 0; i < transport.count; i++) {
+        CGFloat x = i == 0 ? first : (i == 1 ? CGRectGetMidX(row) : last);
+        CGRect slot = CGRectMake(x - 28.0, CGRectGetMidY(row) - 22.0, 56.0, 44.0);
+        if (_card) CLFillCircle(context, CGPointMake(x, CGRectGetMidY(row)), 5.0, white);
+        else CLDrawSymbol(transport[i], slot, 20.0, UIImageSymbolWeightSemibold, white);
     }
-    // Title and artist on the left, where the screen leaves room for them.
-    if (CGRectGetWidth(safe) >= CLLayoutFullScreenMinimumWidthForText) {
-        CGFloat textWidth = MAX(0.0, x - CGRectGetMinX(row) - 4.0);
-        if (_card) {
-            CLFillTextBar(context, CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) - 9.0, textWidth, 7.0), 0.8, 0, white);
-            CLFillTextBar(context, CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) + 3.0, textWidth, 6.0), 0.55, 0, white);
-        } else {
-            CLDrawText(@"Long Way Home", CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) - 18.0, textWidth, 20.0),
-                       [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold], white, NSTextAlignmentLeft);
-            CLDrawText(@"The Night Drivers", CGRectMake(CGRectGetMinX(row), CGRectGetMidY(row) + 1.0, textWidth, 17.0),
-                       [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular], white, NSTextAlignmentLeft);
-        }
+
+    // Native play-mode buttons are centred below the progress line. The
+    // microphone is one 44 x 26 slot, the same size as the other four.
+    CGRect modes = CLLayoutFullScreenPlayModeRect(safe);
+    NSArray<NSString *> *icons = @[ @"checkmark.circle", @"shuffle", @"repeat",
+                                   @"dot.radiowaves.left.and.right", @"mic" ];
+    CGFloat button = _card ? 18.0 : 44.0;
+    CGFloat width = _card ? MIN(CGRectGetWidth(modes), 5.0 * 18.0 + 4.0 * 7.0)
+                          : MIN(CGRectGetWidth(modes), MAX(284.0, CGRectGetWidth(modes) * 0.50));
+    CGFloat gap = (width - icons.count * button) / (icons.count - 1);
+    CGFloat x = CGRectGetMidX(modes) - width / 2.0;
+    for (NSUInteger i = 0; i < icons.count; i++) {
+        CGRect slot = CGRectMake(x, CGRectGetMidY(modes) - 13.0, button, 26.0);
+        if (i == 4) CLFillRoundedRect(context, slot, 8.0, [UIColor colorWithWhite:1.0 alpha:0.22]);
+        if (_card) CLFillCircle(context, CGPointMake(CGRectGetMidX(slot), CGRectGetMidY(slot)), 3.0, white);
+        else CLDrawSymbol(icons[i], slot, 15.0, UIImageSymbolWeightRegular, white);
+        x += button + gap;
+    }
+
+    // Preserve the existing song/artist marquee above the transport row,
+    // never alongside the buttons where it could compete for touch space.
+    CGRect info = CLLayoutFullScreenSongInfoRect(safe);
+    CGFloat textWidth = MIN(CGRectGetWidth(info), CGRectGetWidth(safe) * 0.62);
+    CGRect titleRect = CGRectMake(CGRectGetMidX(info) - textWidth / 2.0, CGRectGetMinY(info), textWidth, 19.0);
+    CGRect artistRect = CGRectMake(CGRectGetMinX(titleRect), CGRectGetMinY(info) + 19.0, textWidth, 16.0);
+    if (_card) {
+        CLFillTextBar(context, titleRect, 0.6, 0, white);
+        CLFillTextBar(context, artistRect, 0.4, 0, white);
+    } else {
+        CLDrawText(@"Long Way Home", titleRect, [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold], white, NSTextAlignmentCenter);
+        CLDrawText(@"The Night Drivers", artistRect, [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular], white, NSTextAlignmentCenter);
     }
 }
 
