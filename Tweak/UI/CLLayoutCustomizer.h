@@ -70,10 +70,16 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// Full-screen lyrics (0.7.0): the lyrics across the whole safe area with a compact title and
 /// previous / play-pause / next row under them, over the host's Now Playing view (hidden while it
-/// is up). The microphone the customizer adds to the host's play-mode row sets it; the view's own
-/// microphone clears it. Only takes effect while the microphone is offered (lyrics on, the app
+/// is up). The microphone the customizer adds to the host's play-mode row sets it; the host's
+/// original navigation-bar Back closes it. Only takes effect while the microphone is offered (lyrics on, the app
 /// enabled and playing). Main thread; setting it from elsewhere hops there.
 @property (nonatomic, getter=isFullScreen) BOOL fullScreen;
+/// Consume the host's real navigation-bar Back action only while full-screen
+/// lyrics are visible on this Now Playing controller. Returns YES after closing
+/// lyrics, so the navigation controller must NOT pop its screen. Returns NO
+/// otherwise, leaving CarPlay's normal Back behaviour untouched.
++ (BOOL)consumeNativeBackForViewController:(nullable UIViewController *)viewController;
+
 /// Our microphone button in the host's play-mode row, nil until it was first placed.
 @property (nonatomic, readonly, nullable) UIButton *microphoneButton;
 
