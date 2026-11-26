@@ -492,6 +492,55 @@ static void CLIngestSnapshot(id snapshot, id manager, UIViewController *controll
 
 %end  // CLGroupNowPlayingController
 
+#pragma mark - Native CarPlay navigation Back
+
+// CarPlay's top-left chevron belongs to the host navigation controller, NOT
+// CLLyricsFullScreenView. Consume the native Back before UIKit pops the Now
+// Playing controller, but only while carLy's lyric overlay is active.
+// Both paths are guarded because UIKit may route a bar tap through its
+// UINavigationBarDelegate or call -popViewControllerAnimated: directly.
+%group CLGroupNativeBackBar
+
+%hook UINavigationController
+
+- (BOOL)navigationBar:(UINavigationBar *)navigationBar shouldPopItem:(UINavigationItem *)item {
+    if (gActive && navigationBar == self.navigationBar) {
+        BOOL consumed = NO;
+        @try {
+            consumed = [CLLayoutCustomizer consumeNativeBackForViewController:self.topViewController];
+        } @catch (NSException *exception) {
+            CLLogError(@"[hook] native Back bar raised %@: %@", exception.name, exception.reason);
+        }
+        if (consumed) return NO; // Keep the host Now Playing screen on the stack.
+    }
+    return %orig;
+}
+
+%end
+
+%end  // CLGroupNativeBackBar
+
+%group CLGroupNativeBackPop
+
+%hook UINavigationController
+
+- (UIViewController *)popViewControllerAnimated:(BOOL)animated {
+    if (gActive) {
+        BOOL consumed = NO;
+        @try {
+            consumed = [CLLayoutCustomizer consumeNativeBackForViewController:self.topViewController];
+        } @catch (NSException *exception) {
+            CLLogError(@"[hook] native Back pop raised %@: %@", exception.name, exception.reason);
+        }
+        if (consumed) return nil; // Close lyrics only; do not leave Now Playing.
+    }
+    return %orig;
+}
+
+%end
+
+%end  // CLGroupNativeBackPop
+
 #pragma mark - Hooks: snapshot delivery
 
 %group CLGroupNowPlayingSnapshot
@@ -780,6 +829,8 @@ void CLInstallNowPlayingHooks(void) {
     // Each group is initialised at most once. A second %init would hook the same method twice and
     // make %orig call our own replacement, which recurses until the stack runs out.
     static BOOL installedController = NO;
+    static BOOL installedNativeBackBar = NO;
+    static BOOL installedNativeBackPop = NO;
     static BOOL installedSnapshot = NO;
     static BOOL installedArtwork = NO;
     static BOOL installedView = NO;
@@ -795,6 +846,20 @@ void CLInstallNowPlayingHooks(void) {
             installedController = YES;
             %init(CLGroupNowPlayingController);
             CLLogInfo(@"[hook] installed CPUINowPlayingViewController lifecycle hooks");
+        }
+        // UIKit's own navigation button is visible above the full-screen lyric
+        // overlay. Do not alter its appearance or normal behaviour elsewhere.
+        if (!installedNativeBackBar &&
+            CLClassImplements(@"UINavigationController", @"navigationBar:shouldPopItem:", nil)) {
+            installedNativeBackBar = YES;
+            %init(CLGroupNativeBackBar);
+            CLLogInfo(@"[hook] installed native CarPlay navigation-bar Back handler");
+        }
+        if (!installedNativeBackPop &&
+            CLClassImplements(@"UINavigationController", @"popViewControllerAnimated:", nil)) {
+            installedNativeBackPop = YES;
+            %init(CLGroupNativeBackPop);
+            CLLogInfo(@"[hook] installed native CarPlay navigation-pop Back handler");
         }
         if (!installedSnapshot &&
             CLClassImplements(@"CPUINowPlayingViewController",
