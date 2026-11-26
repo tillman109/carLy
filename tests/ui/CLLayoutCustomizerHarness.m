@@ -2062,6 +2062,21 @@ static void TestMicrophoneAndFullScreen(void) {
         EXPECT(sameSize && level && modeButtons.lastObject.selected,
                "full screen: all play modes and selected microphone use stock 44 x 26 sizing");
     }
+    // A change made by Spotify's hidden native play-mode row must appear in
+    // the corresponding lyric-screen mirror on the next host synchronisation.
+    UIButton *nativeSecond = (UIButton *)stack.arrangedSubviews[1];
+    UIImage *nativeSymbol = [UIImage systemImageNamed:@"shuffle"];
+    [nativeSecond setImage:nativeSymbol forState:UIControlStateNormal];
+    nativeSecond.selected = YES;
+    [customizer relayout];
+    Layout(vc);
+    if (fullScreen.playModeButtons.count == 5) {
+        UIButton *mirrorSecond = fullScreen.playModeButtons[1];
+        EXPECT(mirrorSecond.selected && [mirrorSecond imageForState:UIControlStateNormal] == nativeSymbol,
+               "full screen: host play-mode image and selected state mirror into lyric screen");
+    }
+    nativeSecond.selected = NO;
+
     CGRect prevRect = RootFrame(fullScreen.controlButtons[0], vc);
     CGRect pauseRect = RootFrame(fullScreen.controlButtons[1], vc);
     CGRect nextRect = RootFrame(fullScreen.controlButtons[2], vc);
