@@ -201,7 +201,7 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
     }
     _closeButton.selected = YES;
     if (!NSClassFromString(@"CPUIModernButton")) {
-        _closeButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.22];
+        _closeButton.backgroundColor = UIColor.tertiarySystemFillColor;
         _closeButton.layer.cornerRadius = 8.0;
     }
     [_closeButton addTarget:self action:@selector(cl_closeTapped:) forControlEvents:UIControlEventTouchUpInside];
@@ -294,12 +294,12 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
     _remainingLabel = timeLabel(NSTextAlignmentRight);
     _progressTrack = [[UIView alloc] initWithFrame:CGRectZero];
     _progressTrack.translatesAutoresizingMaskIntoConstraints = NO;
-    _progressTrack.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.25];
+    _progressTrack.backgroundColor = [UIColor.labelColor colorWithAlphaComponent:0.25];
     _progressTrack.layer.cornerRadius = kCLFullScreenProgressBarThickness / 2.0;
     _progressTrack.clipsToBounds = YES;
     // The fill is laid out by hand (a width that changes twice a second is not a constraint).
     _progressFill = [[UIView alloc] initWithFrame:CGRectZero];
-    _progressFill.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.9];
+    _progressFill.backgroundColor = UIColor.labelColor;
     _progressFill.layer.cornerRadius = kCLFullScreenProgressBarThickness / 2.0;
     [_progressTrack addSubview:_progressFill];
     for (UIView *view in @[ _elapsedLabel, _progressTrack, _remainingLabel ]) [_progressRow addSubview:view];
