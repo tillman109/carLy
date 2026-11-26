@@ -188,7 +188,9 @@ static UIImage *CLSymbol(NSString *name, CGFloat pointSize, UIImageSymbolWeight 
         NSLayoutConstraint *height = [button.heightAnchor constraintEqualToConstant:_buttonHeight];
         [sizes addObjectsFromArray:@[ width, height ]];
     }
-    _transportSizeConstraints = sizes;
+    // Freeze this list before microphone size constraints are appended: a host
+    // buttonHeight refresh must NEVER resize the 44 x 26 play-mode microphone.
+    _transportSizeConstraints = [sizes copy];
 
     // On Now Playing the microphone is the fifth PLAY-MODE control, not an
     // oversized transport button. Keep that same size/row in the lyrics view.
