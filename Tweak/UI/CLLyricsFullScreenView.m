@@ -375,6 +375,9 @@ static NSString *CLTimeText(NSTimeInterval seconds) {
 /// Where the song is now (interpolated from the last MediaRemote sample), on the bar and in the
 /// two times; hidden while the length is unknown (radio, some ads).
 - (void)cl_updateProgress {
+    // Playback-mode state changes (shuffle / repeat) may not trigger a track
+    // update, so keep these mirrored button states fresh independently.
+    [self cl_syncHostPlayModeImages];
     CLPlaybackState *state = _playbackState;
     NSTimeInterval duration = state.duration;
     BOOL known = duration > 0.0 && isfinite(duration);
