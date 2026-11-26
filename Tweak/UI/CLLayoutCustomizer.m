@@ -1128,6 +1128,20 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
     CLUISafePerform(@"microphone", ^{ [self setFullScreen:YES]; });
 }
 
++ (BOOL)consumeNativeBackForViewController:(UIViewController *)viewController {
+    // Called by the host's UINavigationController hooks BEFORE UIKit pops its
+    // Now Playing controller. Never intercept other screens, or normal Back
+    // after the lyric overlay has closed. No navigation-item mutations needed.
+    if (![NSThread isMainThread] || !viewController) return NO;
+    CLLayoutCustomizer *customizer = [self customizerForViewController:viewController create:NO];
+    if (!customizer || !customizer->_attached || customizer->_paused ||
+        !customizer->_fullScreen || customizer->_viewController != viewController) return NO;
+    [customizer setFullScreen:NO];
+    if (customizer->_fullScreen) return NO;
+    CLLogDebug(@"[ui] native CarPlay Back returned to Now Playing");
+    return YES;
+}
+
 - (BOOL)isFullScreen {
     return _fullScreen;
 }
@@ -1303,10 +1317,6 @@ static void CLUpdatePlayModeLayout(UIView *playMode) {
             CLUISafePerform(@"transport glyph sync", ^{ [weakSelf cl_syncFullScreenTransport]; });
         });
     }
-}
-
-- (void)lyricsFullScreenViewDidRequestClose:(CLLyricsFullScreenView *)view {
-    [self setFullScreen:NO];
 }
 
 #pragma mark - Controller wiring
