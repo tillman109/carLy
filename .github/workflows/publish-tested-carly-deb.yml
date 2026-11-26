@@ -1,0 +1,99 @@
+name: Publish tested carLy DEB to personal repo
+
+# This workflow was added specifically to publish the previously built and
+# device-checked dev28 DEB without requesting another macOS runner.
+# It runs once upon creating this file on the development branch.
+# Later publishes can be requested manually from Actions, where available.
+on:
+  push:
+    branches:
+      - feature/interactive-lyrics-marquee-20261123
+    paths:
+      - .github/workflows/publish-tested-carly-deb.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-tested-carly-deb
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify personal repo publishing access
+        env:
+          REPO_TOKEN: ${{ secrets.CARLY_REPO_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -z "$REPO_TOKEN" ]]; then
+            echo "::error::CARLY_REPO_TOKEN is missing. Create a fine-grained PAT with Contents read/write on tillman109/repo and save it as a carLy Actions secret"
+            exit 1
+          fi
+
+      - name: Download the already-built carLy dev28 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package
+          curl -fLsS --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/tillman109/carLy/actions/artifacts/15013576613/zip" \
+            -o package/artifact.zip
+          unzip -t package/artifact.zip
+          unzip -j package/artifact.zip -d package/
+          test -f package/com.andi.carly_1.0.0-dev28_iphoneos-arm64.deb
+          echo "cc7e4459902da0648ba426207f8fd9a55745eeb663585be61eb479bc2ccf83c1  package/com.andi.carly_1.0.0-dev28_iphoneos-arm64.deb" | sha256sum --check
+          test "$(dpkg-deb -f package/com.andi.carly_1.0.0-dev28_iphoneos-arm64.deb Package)" = "com.andi.carly"
+          test "$(dpkg-deb -f package/com.andi.carly_1.0.0-dev28_iphoneos-arm64.deb Version)" = "1.0.0-dev28"
+          test "$(dpkg-deb -f package/com.andi.carly_1.0.0-dev28_iphoneos-arm64.deb Architecture)" = "iphoneos-arm64"
+
+      - name: Check out Tillman's Sileo repository
+        uses: actions/checkout@v4
+        with:
+          repository: tillman109/repo
+          ref: main
+          path: personal-repo
+          token: ${{ secrets.CARLY_REPO_TOKEN }}
+
+      - name: Publish package without changing CarPlay26
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p personal-repo/debs
+          cp package/com.andi.carly_1.0.0-dev28_iphoneos-arm64.deb personal-repo/debs/
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          files = list(Path("personal-repo/debs").glob("com.andi.carly_*.deb"))
+          rx = re.compile(r"^com\.andi\.carly_(.+)_(iphoneos-arm64|iphoneos-arm64e)\.deb$")
+          versions = {}
+          for file in files:
+              match = rx.fullmatch(file.name)
+              if match is None:
+                  raise SystemExit("Unknown carLy package naming: " + file.name)
+              versions.setdefault(match.group(1), []).append(file)
+          def natural_key(value):
+              return tuple((0, int(x)) if x.isdigit() else (1, x.lower()) for x in re.split(r"(\d+)", value))
+          for version in sorted(versions, key=natural_key)[:-3]:
+              for file in versions[version]:
+                  file.unlink()
+          PY
+          cd personal-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- debs/
+          if git diff --cached --quiet; then
+            echo "Package already published"
+          else
+            git commit -m "Publish tested carLy 1.0.0-dev28"
+            git push origin HEAD:main
+          fi
