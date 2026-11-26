@@ -9,7 +9,9 @@ TWEAK_NAME := carLy
 carLy_FILES := $(shell find Tweak -name '*.m' -o -name '*.x' | sort)
 carLy_CFLAGS := -fobjc-arc -Wall -Werror -Wno-unused-function -ITweak -ITweak/Private -DCL_VERSION=\"$(THEOS_PACKAGE_BASE_VERSION)\"
 carLy_FRAMEWORKS := UIKit CoreGraphics QuartzCore
-carLy_LIBRARIES := sqlite3
+carLy_LIBRARIES := sqlite3 roothide
+# jbroot() is used by Spotify's cross-process bridge and preference fallback.
+# RootHide supplies libroothide and a randomised jailbreak root at runtime.
 
 SUBPROJECTS := Prefs
 
